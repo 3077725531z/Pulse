@@ -1,5 +1,76 @@
 # Pulse 更新日志
 
+## [0.3.0-beta.3] - 2026-09-07
+
+**实时通知系统 + 群聊增强 + 扫码兼容性修复**
+
+### ✨ 新功能
+
+#### 好友请求实时通知
+- 发送好友请求时通过 Socket.IO 定向推送通知到对方
+- 接受好友请求时实时通知请求发起方
+- 后端新增 `notifyUser(userId, event, data)` 函数支持定向通知
+- 前端聊天导航栏联系人按钮显示未读请求计数红色徽章
+- 收到请求时自动刷新请求列表并播放提示音
+- 好友请求列表新增历史记录加载
+
+#### 群聊增强
+- 创建群聊时实时通知被邀请成员加入新 Socket 房间
+  - 解决被邀请成员首条群消息收不到实时推送的问题
+  - 前端 `onGroupJoined` action 自动 `rejoin` 并刷新会话列表
+- 新增 `GET /chat/group/:conversationId/members` 群成员列表接口
+- 会话列表 SQL 查询增加 `member_count` 和 `last_sender_name` 字段
+- 群聊列表项正确显示最后发送人昵称（"张三: 你好"格式）
+- 群聊名称为空时默认显示"群聊"
+
+### 🐛 Bug 修复
+
+#### 通话挂断重复消息
+- **问题**：通话挂断时会发送 3 条通话结束消息
+- **原因**：`handleEnd` 被 3 个来源同时触发
+  1. A 方点击结束按钮
+  2. B 方收到 socket `call:end` 事件后调用 `handleRemoteEnd`
+  3. B 方 WebRTC 连接状态变为 `disconnected` 触发 `pc.onconnectionstatechange`
+- **修复**：在 `handleEnd` 函数开头添加 `hasEndedRef` 守卫，确保只执行一次
+
+#### 联系人页面发消息点不动
+- **问题**：点击联系人卡片的"发消息"按钮无反应
+- **原因**：`App.jsx` 渲染 `<ContactsPage />` 时未传 `onSelectUser` 回调
+  `onSelectUser?.()` 可选链直接返回，什么都不做
+- **修复**：`App.jsx` 正确传入 `onSelectUser` 回调，按 convId 查找会话并打开聊天详情
+
+#### 用户主页发消息点不动
+- **问题**：用户资料页"发消息"按钮点击无反应
+- **原因**：[ContactsPage.jsx](file:///c:/Users/30777/Desktop/2026年毕业设计/聊天视频语音文字app/聊天视频语音文字app/frontend/src/pages/ContactsPage.jsx) 渲染 `<UserProfilePage>` 时只传了 `onBack`，
+  但组件期望的是 `onClose` 和 `onStartChat`
+- **修复**：正确传入 `onClose` 和 `onStartChat` 回调
+
+#### 二维码扫码在 Safari/Firefox 无效
+- **问题**：Safari 和 Firefox 浏览器扫码功能完全无效
+- **原因**：扫码逻辑只依赖浏览器原生 `BarcodeDetector` API
+  该 API 仅在 Chrome 83+ 和 Edge 中支持，其他浏览器完全不支持
+- **修复**：集成 `jsQR` 库作为 `BarcodeDetector` 的 fallback
+  - 优先使用原生 `BarcodeDetector`（Chrome/Edge 性能更好）
+  - 不支持或解析失败时用 `jsQR` 解析 canvas 图像
+  - 支持所有现代浏览器（Chrome、Edge、Safari、Firefox）
+
+#### 拒绝好友请求路由状态错误
+- **问题**：拒绝好友请求时 SQL 错误使用 `'accepted'` 状态
+- **修复**：将更新语句中的 `'accepted'` 改为 `'rejected'`
+
+#### 注销后默认主题为深色
+- **问题**：注销后重新初始化时默认使用深色主题
+- **原因**：`authStore.js` 中 `initTheme` 函数默认值为 `'dark'`
+- **修复**：将默认主题改为 `'light'`，确保所有场景默认浅色主题
+
+### 📦 依赖
+
+#### 新增
+- `jsqr` - 纯 JavaScript 二维码解析库，作为 `BarcodeDetector` 的 fallback
+  支持所有现代浏览器识别二维码
+
+---
+
 ## [0.2.0-beta.2] - 2026-09-07
 
 **Pulse 内测二号版本 —— 全站清新 UI 改版**

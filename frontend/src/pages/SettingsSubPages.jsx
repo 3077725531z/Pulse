@@ -178,7 +178,7 @@ export function NotificationPage({ onBack }) {
 
       <div className="text-sm font-medium text-t1 mb-3">{t('noti_announcements')}</div>
       {user?.isAdmin && (
-        <button onClick={() => { setEditId(null); setEditTitle(''); setEditContent(''); setShowEditor(true); }} className="w-full h-10 bg-accent rounded-full text-sm font-medium mb-4" style={{ color: '#080808' }}>
+        <button onClick={() => { setEditId(null); setEditTitle(''); setEditContent(''); setShowEditor(true); }} className="w-full h-10 bg-accent rounded-full text-sm font-medium mb-4" style={{ color: '#fff' }}>
           {t('noti_publish')}
         </button>
       )}
@@ -216,7 +216,7 @@ export function NotificationPage({ onBack }) {
             </div>
             <input type="text" placeholder={t('noti_announcementTitle')} value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full h-10 glass rounded-full px-4 text-sm text-t1 placeholder:text-t3 outline-none mb-3" />
             <textarea placeholder={t('noti_announcementContent')} value={editContent} onChange={e => setEditContent(e.target.value)} className="w-full h-32 glass rounded-glass px-4 py-3 text-sm text-t1 placeholder:text-t3 outline-none resize-none mb-4" />
-            <button onClick={handleSave} className="w-full h-10 bg-accent rounded-full text-sm font-medium" style={{ color: '#080808' }}>{editId ? t('save') : t('noti_announcementPublish')}</button>
+            <button onClick={handleSave} className="w-full h-10 bg-accent rounded-full text-sm font-medium" style={{ color: '#fff' }}>{editId ? t('save') : t('noti_announcementPublish')}</button>
           </div>
         </div>
       )}
@@ -448,7 +448,7 @@ export function HelpPage({ onBack }) {
       <div className="glass rounded-glass p-4 mb-5">
         <div className="text-sm font-medium text-t1 mb-3">{t('help_feedback')}</div>
         <textarea placeholder={t('help_feedbackPlaceholder')} value={feedback} onChange={e => setFeedback(e.target.value)} className="w-full h-28 glass rounded-glass px-4 py-3 text-sm text-t1 placeholder:text-t3 outline-none resize-none mb-3" />
-        <button onClick={handleSubmit} disabled={submitting} className="w-full h-10 bg-accent rounded-full text-sm font-medium disabled:opacity-50" style={{ color: '#080808' }}>{submitting ? t('help_submitting') : t('help_submit')}</button>
+        <button onClick={handleSubmit} disabled={submitting} className="w-full h-10 bg-accent rounded-full text-sm font-medium disabled:opacity-50" style={{ color: '#fff' }}>{submitting ? t('help_submitting') : t('help_submit')}</button>
         {submitted && <p className="text-xs text-green text-center mt-2">{t('help_submitSuccess')}</p>}
       </div>
 

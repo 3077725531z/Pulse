@@ -109,7 +109,7 @@ export default function EditProfilePage({ onClose }) {
             </div>
             <button 
               onClick={() => fileInputRef.current?.click()}
-              className="absolute bottom-0 right-0 w-7 h-7 bg-accent rounded-full flex items-center justify-center text-[#080808]"
+              className="absolute bottom-0 right-0 w-7 h-7 bg-accent rounded-full flex items-center justify-center text-white"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
@@ -150,7 +150,7 @@ export default function EditProfilePage({ onClose }) {
         <button
           onClick={handleSave}
           disabled={loading}
-          className="w-full h-12 bg-accent text-[#080808] font-semibold rounded-full hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="w-full h-12 bg-accent text-white font-semibold rounded-full hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           {loading ? '保存中...' : '保存'}
         </button>

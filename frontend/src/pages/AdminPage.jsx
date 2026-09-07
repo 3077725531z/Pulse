@@ -588,7 +588,7 @@ export default function AdminPage({ onBack }) {
                   </select>
                   <input type="text" placeholder="搜索用户..." value={recordingFilter.search} onChange={e => setRecordingFilter({ ...recordingFilter, search: e.target.value })} className="w-48 h-9 glass rounded-lg px-3 text-sm text-t1 placeholder:text-t3 outline-none" />
                   {selectedRecordings.length > 0 && (
-                    <button onClick={handleDownloadZip} className="px-3 h-9 bg-accent rounded-lg text-xs font-medium" style={{ color: '#080808' }}>打包下载 ({selectedRecordings.length})</button>
+                    <button onClick={handleDownloadZip} className="px-3 h-9 bg-accent rounded-lg text-xs font-medium" style={{ color: '#fff' }}>打包下载 ({selectedRecordings.length})</button>
                   )}
                 </div>
               </div>
@@ -655,7 +655,7 @@ export default function AdminPage({ onBack }) {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-t1">系统公告 ({announcements.length})</h2>
-                <button onClick={() => { setEditAnnouncement({}); setAnnouncementTitle(''); setAnnouncementContent(''); }} className="px-3 py-1.5 bg-accent rounded-lg text-sm font-medium" style={{ color: '#080808' }}>+ 发布公告</button>
+                <button onClick={() => { setEditAnnouncement({}); setAnnouncementTitle(''); setAnnouncementContent(''); }} className="px-3 py-1.5 bg-accent rounded-lg text-sm font-medium" style={{ color: '#fff' }}>+ 发布公告</button>
               </div>
               {announcements.length === 0 ? (
                 <div className="glass rounded-xl p-12 text-center">
@@ -688,7 +688,7 @@ export default function AdminPage({ onBack }) {
                     </div>
                     <input type="text" placeholder="公告标题" value={announcementTitle} onChange={e => setAnnouncementTitle(e.target.value)} className="w-full h-10 glass rounded-lg px-3 text-sm text-t1 placeholder:text-t3 outline-none mb-3" />
                     <textarea placeholder="公告内容" value={announcementContent} onChange={e => setAnnouncementContent(e.target.value)} className="w-full h-32 glass rounded-lg px-3 py-2 text-sm text-t1 placeholder:text-t3 outline-none resize-none mb-4" />
-                    <button onClick={async () => { if (!announcementTitle.trim() || !announcementContent.trim()) return alert('标题和内容不能为空'); if (editAnnouncement.id) { await api.put(`/admin/announcements/${editAnnouncement.id}`, { title: announcementTitle, content: announcementContent }); } else { await api.post('/admin/announcements', { title: announcementTitle, content: announcementContent }); } setEditAnnouncement(null); loadAnnouncements(); }} className="w-full h-10 bg-accent rounded-lg text-sm font-medium" style={{ color: '#080808' }}>{editAnnouncement.id ? '保存修改' : '发布'}</button>
+                    <button onClick={async () => { if (!announcementTitle.trim() || !announcementContent.trim()) return alert('标题和内容不能为空'); if (editAnnouncement.id) { await api.put(`/admin/announcements/${editAnnouncement.id}`, { title: announcementTitle, content: announcementContent }); } else { await api.post('/admin/announcements', { title: announcementTitle, content: announcementContent }); } setEditAnnouncement(null); loadAnnouncements(); }} className="w-full h-10 bg-accent rounded-lg text-sm font-medium" style={{ color: '#fff' }}>{editAnnouncement.id ? '保存修改' : '发布'}</button>
                   </div>
                 </div>
               )}
@@ -743,7 +743,7 @@ export default function AdminPage({ onBack }) {
                       <button onClick={() => setReplyingFeedback(null)} className="text-t3"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                     </div>
                     <textarea placeholder="输入回复内容..." value={replyContent} onChange={e => setReplyContent(e.target.value)} className="w-full h-24 glass rounded-lg px-3 py-2 text-sm text-t1 placeholder:text-t3 outline-none resize-none mb-4" />
-                    <button onClick={async () => { if (!replyContent.trim()) return; await api.put(`/admin/feedback/${replyingFeedback}/reply`, { adminReply: replyContent }); setReplyingFeedback(null); loadFeedbacks(); }} className="w-full h-10 bg-accent rounded-lg text-sm font-medium" style={{ color: '#080808' }}>发送回复</button>
+                    <button onClick={async () => { if (!replyContent.trim()) return; await api.put(`/admin/feedback/${replyingFeedback}/reply`, { adminReply: replyContent }); setReplyingFeedback(null); loadFeedbacks(); }} className="w-full h-10 bg-accent rounded-lg text-sm font-medium" style={{ color: '#fff' }}>发送回复</button>
                   </div>
                 </div>
               )}

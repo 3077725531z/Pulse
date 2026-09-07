@@ -185,7 +185,7 @@ export default function ChatList({ onSelect }) {
 
             <button
               onClick={handleCreateGroup}
-              className="w-full h-12 bg-accent text-[#080808] font-semibold rounded-full hover:opacity-90 transition-opacity"
+              className="w-full h-12 bg-accent text-white font-semibold rounded-full hover:opacity-90 transition-opacity"
             >
               创建群聊 ({selectedMembers.length} 人)
             </button>

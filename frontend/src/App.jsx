@@ -25,11 +25,11 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#080808', color: '#f0f0f0' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(145deg, #f0f4f8, #e8ecf4)', color: '#2d3748' }}>
           <p style={{ fontSize: 16, marginBottom: 12 }}>页面加载出错</p>
           <button
             onClick={() => { localStorage.removeItem('pulse_token'); window.location.reload(); }}
-            style={{ padding: '10px 24px', borderRadius: 999, background: '#7dd3fc', color: '#080808', fontWeight: 600, border: 'none' }}
+            style={{ padding: '10px 24px', borderRadius: 999, background: 'linear-gradient(135deg, #6c9ce9, #a5c4f7)', color: '#fff', fontWeight: 600, border: 'none', cursor: 'pointer' }}
           >
             重新登录
           </button>
@@ -71,14 +71,14 @@ function IncomingCallBanner() {
             className="w-14 h-14 bg-red rounded-full flex items-center justify-center"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71s-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.73-1.68-1.36-2.66-1.85a.994.994 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" fill="#080808"/>
+              <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71s-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.73-1.68-1.36-2.66-1.85a.994.994 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" fill="#fff"/>
             </svg>
           </button>
           <button
             onClick={acceptCall}
             className="w-14 h-14 bg-green rounded-full flex items-center justify-center"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="#080808" xmlns="http://www.w3.org/2000/svg">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">
               <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
             </svg>
           </button>
@@ -115,8 +115,7 @@ function AppContent() {
   const { t } = useI18n();
   const [page, _setPage] = useState(() => localStorage.getItem('pulse_page') || 'home');
   const setPage = (p) => { localStorage.setItem('pulse_page', p); _setPage(p); };
-  const [chatConv, setChatConv] = useState(null);   // 当前打开的会话
-
+  const [chatConv, setChatConv] = useState(null);   // 当前打开的会�?
   useSocket();
 
   useEffect(() => {
@@ -135,7 +134,7 @@ function AppContent() {
       {/* 状态栏占位 */}
       <div className="h-14 shrink-0" />
 
-      {/* 主内容 */}
+      {/* 主内�?*/}
       <div className="flex-1 flex flex-col overflow-hidden">
         {chatConv ? (
           <ChatDetail conversation={chatConv} onBack={() => setChatConv(null)} />
@@ -160,9 +159,9 @@ function AppContent() {
       {/* 全局通话组件 */}
       <ActiveCallWrapper />
 
-      {/* 底部导航（聊天详情页隐藏） */}
+      {/* 底部导航（聊天详情页隐藏�?*/}
       {!chatConv && (
-        <div className="shrink-0 flex items-center justify-around px-5 py-2 pb-7 backdrop-blur-heavy border-t border-border" style={{ background: 'var(--bg-secondary)' }}>
+        <div className="shrink-0 flex items-center justify-around px-5 py-2 pb-7" style={{ background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderTop: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 -2px 12px rgba(0,0,0,0.04)' }}>
           <button onClick={() => setPage('home')} className={`flex flex-col items-center gap-0.5 px-4 py-1 ${page === 'home' ? 'text-accent' : 'text-t3'}`}>
             <div className="relative">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>

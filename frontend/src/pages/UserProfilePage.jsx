@@ -141,7 +141,7 @@ export default function UserProfilePage({ pulseId, onClose, onStartChat }) {
           ) : isFriend ? (
             <button
               onClick={handleStartChat}
-              className="w-full h-12 bg-accent text-[#080808] font-semibold rounded-full hover:opacity-90"
+              className="w-full h-12 bg-accent text-white font-semibold rounded-full hover:opacity-90"
             >
               发消息
             </button>
@@ -156,7 +156,7 @@ export default function UserProfilePage({ pulseId, onClose, onStartChat }) {
             <button
               onClick={handleAddFriend}
               disabled={sending}
-              className="w-full h-12 bg-accent text-[#080808] font-semibold rounded-full hover:opacity-90 disabled:opacity-50"
+              className="w-full h-12 bg-accent text-white font-semibold rounded-full hover:opacity-90 disabled:opacity-50"
             >
               {sending ? '发送中...' : '添加好友'}
             </button>

@@ -396,7 +396,7 @@ export default function ChatDetail({ conversation, onBack }) {
             />
           </div>
           {/* 发送按钮 */}
-          <button onClick={handleSend} className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-[#080808] shrink-0 active:scale-92 transition-transform">
+          <button onClick={handleSend} className="w-10 h-10 bg-accent rounded-full flex items-center justify-center text-white shrink-0 active:scale-92 transition-transform">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>

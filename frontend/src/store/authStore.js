@@ -5,7 +5,7 @@ export const useAuthStore = create((set, get) => ({
   user: null,
   token: localStorage.getItem('pulse_token'),
   isLoggedIn: !!localStorage.getItem('pulse_token'),
-  theme: localStorage.getItem('pulse_theme') || 'dark',
+  theme: localStorage.getItem('pulse_theme') || 'light',
   settings: {
     onlineVisibility: 'friends',
     showReadReceipts: true,
@@ -18,18 +18,18 @@ export const useAuthStore = create((set, get) => ({
   login: async (username, password) => {
     const { data } = await api.post('/auth/login', { username, password });
     localStorage.setItem('pulse_token', data.token);
-    localStorage.setItem('pulse_theme', data.user.theme || 'dark');
-    document.documentElement.setAttribute('data-theme', data.user.theme || 'dark');
-    set({ user: data.user, token: data.token, isLoggedIn: true, theme: data.user.theme || 'dark' });
+    localStorage.setItem('pulse_theme', data.user.theme || 'light');
+    document.documentElement.setAttribute('data-theme', data.user.theme || 'light');
+    set({ user: data.user, token: data.token, isLoggedIn: true, theme: data.user.theme || 'light' });
     return data;
   },
 
   register: async ({ username, password, nickname, email, emailCode }) => {
     const { data } = await api.post('/auth/register', { username, password, nickname, email, emailCode });
     localStorage.setItem('pulse_token', data.token);
-    localStorage.setItem('pulse_theme', 'dark');
-    document.documentElement.setAttribute('data-theme', 'dark');
-    set({ user: data.user, token: data.token, isLoggedIn: true, theme: 'dark' });
+    localStorage.setItem('pulse_theme', 'light');
+    document.documentElement.setAttribute('data-theme', 'light');
+    set({ user: data.user, token: data.token, isLoggedIn: true, theme: 'light' });
     return data;
   },
 
@@ -41,7 +41,7 @@ export const useAuthStore = create((set, get) => ({
   fetchMe: async () => {
     try {
       const { data } = await api.get('/user/me');
-      const theme = data.theme || 'dark';
+      const theme = data.theme || 'light';
       localStorage.setItem('pulse_theme', theme);
       document.documentElement.setAttribute('data-theme', theme);
       set({ user: { ...data, isAdmin: !!data.isAdmin }, theme });

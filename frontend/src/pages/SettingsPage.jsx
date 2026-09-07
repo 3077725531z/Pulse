@@ -5,7 +5,7 @@ import EditProfilePage from './EditProfilePage';
 import { PrivacyPage, NotificationPage, StoragePage, LanguagePage, AboutPage, HelpPage } from './SettingsSubPages';
 
 export default function SettingsPage({ onNavigate }) {
-  const { user, logout, theme, updateTheme, updatePulseId } = useAuthStore();
+  const { user, logout, updatePulseId } = useAuthStore();
   const { t } = useI18n();
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showEditPulseId, setShowEditPulseId] = useState(false);
@@ -13,11 +13,6 @@ export default function SettingsPage({ onNavigate }) {
   const [pulseIdError, setPulseIdError] = useState('');
   const [pulseIdLoading, setPulseIdLoading] = useState(false);
   const [subPage, setSubPage] = useState(null);
-
-  const handleToggleTheme = async () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    await updateTheme(newTheme);
-  };
 
   const handleChangePulseId = async () => {
     setPulseIdError('');
@@ -77,16 +72,6 @@ export default function SettingsPage({ onNavigate }) {
     {
       title: '',
       items: [
-        { 
-          icon: 'palette', 
-          label: t('settings_theme'), 
-          color: 'rgba(244,114,182,0.12)',
-          extra: (
-            <button onClick={handleToggleTheme} className="px-3 py-1 glass rounded-full text-xs font-medium">
-              {theme === 'dark' ? t('settings_theme_dark') : t('settings_theme_light')}
-            </button>
-          )
-        },
         { icon: 'save', label: t('settings_storage'), color: 'rgba(34,211,238,0.12)', action: () => setSubPage('storage') },
         { icon: 'globe', label: t('settings_language'), color: 'rgba(192,132,252,0.12)', action: () => setSubPage('language') },
       ],
@@ -186,7 +171,7 @@ export default function SettingsPage({ onNavigate }) {
                   className="w-full h-10 glass rounded-full px-4 text-sm text-t1 placeholder:text-t3 outline-none mb-2"
                 />
                 {pulseIdError && <p className="text-red text-xs mb-3">{pulseIdError}</p>}
-                <button onClick={handleChangePulseId} disabled={pulseIdLoading} className="w-full h-12 bg-accent font-semibold rounded-full hover:opacity-90 disabled:opacity-50" style={{color: '#080808'}}>
+                <button onClick={handleChangePulseId} disabled={pulseIdLoading} className="w-full h-12 bg-accent font-semibold rounded-full hover:opacity-90 disabled:opacity-50" style={{color: '#fff'}}>
                   {pulseIdLoading ? '...' : t('confirm')}
                 </button>
               </>

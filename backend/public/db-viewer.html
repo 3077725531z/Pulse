@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulse 数据库可视化</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f6fa; color: #1a1a2e; min-height: 100vh; }
+
+  /* 登录页 */
+  .login-overlay { position: fixed; inset: 0; background: #f5f6fa; display: flex; align-items: center; justify-content: center; z-index: 9999; }
+  .login-box { background: #fff; border: 1px solid #e2e5f1; border-radius: 12px; padding: 36px; width: 340px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .login-box h2 { font-size: 20px; margin-bottom: 6px; color: #1a1a2e; }
+  .login-box p { font-size: 13px; color: #8b8fa3; margin-bottom: 20px; }
+  .login-box input { width: 100%; padding: 10px 14px; background: #f5f6fa; border: 1px solid #e2e5f1; border-radius: 8px; color: #1a1a2e; font-size: 14px; outline: none; margin-bottom: 14px; }
+  .login-box input:focus { border-color: #5b7fff; }
+  .login-box button { width: 100%; padding: 10px; background: #5b7fff; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .login-box button:hover { background: #4a6cf7; }
+  .login-error { color: #e74c3c; font-size: 13px; margin-bottom: 10px; display: none; }
+
+  /* 主布局 */
+  .app { display: none; height: 100vh; }
+  .app.active { display: flex; }
+
+  /* 侧边栏 */
+  .sidebar { width: 220px; background: #fff; border-right: 1px solid #e2e5f1; display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-header { padding: 18px 16px; border-bottom: 1px solid #e2e5f1; }
+  .sidebar-header h1 { font-size: 16px; color: #1a1a2e; display: flex; align-items: center; gap: 6px; }
+  .sidebar-header h1::before { content: ''; width: 8px; height: 8px; background: #5b7fff; border-radius: 2px; display: inline-block; }
+  .sidebar-header .subtitle { font-size: 11px; color: #8b8fa3; margin-top: 2px; }
+  .table-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
+  .table-item { padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #555; transition: all 0.12s; }
+  .table-item:hover { background: #f0f2f8; color: #1a1a2e; }
+  .table-item.active { background: #eef2ff; color: #5b7fff; font-weight: 500; }
+  .sidebar-footer { padding: 10px 14px; border-top: 1px solid #e2e5f1; font-size: 11px; color: #aaa; text-align: center; }
+
+  /* 主内容 */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+
+  /* 顶部栏 */
+  .topbar { padding: 14px 20px; border-bottom: 1px solid #e2e5f1; display: flex; align-items: center; gap: 10px; background: #fff; flex-wrap: wrap; }
+  .topbar h2 { font-size: 15px; color: #1a1a2e; }
+  .topbar .badge { font-size: 11px; background: #eef2ff; color: #5b7fff; padding: 2px 10px; border-radius: 10px; font-weight: 500; }
+  .topbar .spacer { flex: 1; }
+  .topbar button, .btn { padding: 7px 14px; border-radius: 6px; border: 1px solid #ddd; background: #fff; color: #555; font-size: 12px; cursor: pointer; transition: all 0.12s; white-space: nowrap; }
+  .topbar button:hover, .btn:hover { border-color: #5b7fff; color: #5b7fff; }
+  .btn-add { background: #5b7fff !important; border-color: #5b7fff !important; color: #fff !important; }
+  .btn-add:hover { background: #4a6cf7 !important; }
+  .btn-danger { border-color: #e74c3c !important; color: #e74c3c !important; }
+  .btn-danger:hover { background: #fdf0ef !important; }
+
+  /* Tab 切换 */
+  .tabs { display: flex; gap: 0; padding: 0 20px; background: #fff; border-bottom: 1px solid #e2e5f1; }
+  .tab { padding: 9px 16px; font-size: 13px; color: #8b8fa3; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.12s; }
+  .tab:hover { color: #555; }
+  .tab.active { color: #5b7fff; border-bottom-color: #5b7fff; }
+
+  /* 表结构 */
+  .structure-panel { padding: 16px 20px; overflow-y: auto; flex: 1; min-height: 0; }
+
+  /* 表格 */
+  .table-wrap { flex: 1; overflow: auto; padding: 12px 20px; min-height: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { position: sticky; top: 0; background: #f8f9fc; padding: 9px 12px; text-align: left; color: #666; font-weight: 600; border-bottom: 2px solid #e2e5f1; white-space: nowrap; font-size: 12px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #f0f0f5; color: #333; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  tr:hover td { background: #f8f9fc; }
+  td.num { color: #5b7fff; }
+  td.null { color: #bbb; font-style: italic; }
+  td.pk { color: #e6a817; }
+  td .actions-cell { display: flex; gap: 4px; }
+  td .btn-sm { padding: 3px 8px; border-radius: 4px; border: 1px solid #ddd; background: #fff; color: #666; font-size: 11px; cursor: pointer; }
+  td .btn-sm:hover { border-color: #5b7fff; color: #5b7fff; }
+  td .btn-sm.del:hover { border-color: #e74c3c; color: #e74c3c; }
+
+  /* 分页 */
+  .pagination { padding: 10px 20px; border-top: 1px solid #e2e5f1; display: flex; align-items: center; gap: 10px; background: #fff; }
+  .pagination button { padding: 5px 12px; border-radius: 5px; border: 1px solid #ddd; background: #fff; color: #666; font-size: 12px; cursor: pointer; }
+  .pagination button:hover:not(:disabled) { border-color: #5b7fff; color: #5b7fff; }
+  .pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .pagination .info { font-size: 12px; color: #8b8fa3; }
+  .pagination select { padding: 5px 8px; border-radius: 5px; border: 1px solid #ddd; background: #fff; color: #555; font-size: 12px; outline: none; }
+
+  /* SQL 控制台 */
+  .sql-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+  .sql-editor { padding: 14px 20px; background: #fff; border-bottom: 1px solid #e2e5f1; flex-shrink: 0; }
+  .sql-editor textarea { width: 100%; height: 70px; background: #f8f9fc; border: 1px solid #e2e5f1; border-radius: 8px; color: #1a1a2e; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; padding: 10px 14px; resize: vertical; outline: none; }
+  .sql-editor textarea:focus { border-color: #5b7fff; }
+  .sql-editor .actions { margin-top: 8px; display: flex; gap: 8px; }
+  .sql-editor .actions button { padding: 7px 18px; border-radius: 6px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .btn-run { background: #5b7fff; color: #fff; }
+  .btn-run:hover { background: #4a6cf7; }
+  .sql-result { flex: 1; overflow: auto; padding: 14px 20px; min-height: 0; }
+  .sql-result .result-info { font-size: 12px; color: #8b8fa3; margin-bottom: 10px; }
+  .sql-result .error { color: #e74c3c; font-size: 13px; background: #fdf0ef; padding: 10px 14px; border-radius: 6px; border: 1px solid #f5c6cb; }
+
+  /* 欢迎页 */
+  .welcome { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; color: #8b8fa3; }
+  .welcome .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
+  .welcome h3 { font-size: 16px; color: #666; margin-bottom: 6px; }
+  .welcome p { font-size: 12px; }
+
+  /* 弹窗 */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; z-index: 9998; }
+  .modal { background: #fff; border: 1px solid #e2e5f1; border-radius: 12px; padding: 24px; width: 440px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+  .modal h3 { font-size: 15px; color: #1a1a2e; margin-bottom: 18px; }
+  .modal .field { margin-bottom: 12px; }
+  .modal .field label { display: block; font-size: 12px; color: #8b8fa3; margin-bottom: 4px; }
+  .modal .field input, .modal .field textarea { width: 100%; padding: 8px 10px; background: #f8f9fc; border: 1px solid #e2e5f1; border-radius: 6px; color: #1a1a2e; font-size: 13px; outline: none; font-family: inherit; }
+  .modal .field input:focus, .modal .field textarea:focus { border-color: #5b7fff; }
+  .modal .field textarea { height: 50px; resize: vertical; }
+  .modal .field .hint { font-size: 11px; color: #aaa; margin-top: 2px; }
+  .modal .btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .modal .btn-row button { padding: 7px 18px; border-radius: 6px; border: 1px solid #ddd; font-size: 12px; cursor: pointer; }
+  .modal .btn-cancel { background: #fff; color: #666; }
+  .modal .btn-cancel:hover { background: #f5f6fa; }
+  .modal .btn-confirm { background: #5b7fff; color: #fff; border-color: #5b7fff !important; font-weight: 600; }
+  .modal .btn-confirm:hover { background: #4a6cf7; }
+
+  /* Toast */
+  .toast { position: fixed; top: 16px; right: 16px; padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 99999; animation: toastIn 0.25s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .toast.success { background: #edfcf2; color: #1a8a4a; border: 1px solid #b7e4c7; }
+  .toast.error { background: #fdf0ef; color: #c0392b; border: 1px solid #f5c6cb; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #b0b0b0; }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <h2>Pulse DB Viewer</h2>
+    <p>输入查看密码以访问数据库</p>
+    <div class="login-error" id="loginError"></div>
+    <input type="password" id="pwdInput" placeholder="请输入密码" autocomplete="off">
+    <button onclick="doLogin()">进入</button>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div class="app" id="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>Pulse 数据库</h1>
+      <div class="subtitle">SQLite 增删改查</div>
+    </div>
+    <div class="table-list" id="tableList"></div>
+    <div class="sidebar-footer">
+      pulse.db &nbsp;|&nbsp;
+      <a href="/" style="color:#5b7fff;text-decoration:none;font-size:11px;">返回主页</a> &nbsp;|&nbsp;
+      <a href="#" onclick="logout();return false;" style="color:#e74c3c;text-decoration:none;font-size:11px;">退出登录</a>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar" id="topbar">
+      <h2 id="currentTableName">-</h2>
+      <span class="badge" id="rowCount" style="display:none;">0 条记录</span>
+      <span id="tableDesc" style="font-size:11px;color:#8b8fa3;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <div class="spacer"></div>
+      <button class="btn-add" id="btnAddRow" onclick="showAddModal()" style="display:none;">+ 新增行</button>
+      <button id="btnRefresh" onclick="loadData()" style="display:none;">刷新</button>
+      <button id="btnExport" onclick="exportCSV()" style="display:none;">导出 CSV</button>
+    </div>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-tab="data" onclick="switchTab('data')">数据</div>
+      <div class="tab" data-tab="structure" onclick="switchTab('structure')">结构</div>
+      <div class="tab" data-tab="sql" onclick="switchTab('sql')">SQL 查询</div>
+    </div>
+    <!-- 数据视图 -->
+    <div class="table-wrap" id="dataView">
+      <div class="welcome">
+        <div class="icon">◆</div>
+        <h3>选择左侧的表</h3>
+        <p>点击表名查看数据，支持增删改查</p>
+      </div>
+    </div>
+    <!-- 结构视图 -->
+    <div class="structure-panel" id="structureView" style="display:none;"></div>
+    <!-- SQL 视图 -->
+    <div class="sql-panel" id="sqlView" style="display:none;">
+      <div class="sql-editor">
+        <textarea id="sqlInput" placeholder="输入任意 SQL 语句（SELECT / INSERT / UPDATE / DELETE / CREATE / ALTER / DROP 等）&#10;例: SELECT * FROM users LIMIT 10&#10;快捷键: Ctrl+Enter 执行"></textarea>
+        <div class="actions">
+          <button class="btn-run" onclick="runSQL()">▶ 执行</button>
+        </div>
+      </div>
+      <div class="sql-result" id="sqlResult">
+        <p style="color:#475569;font-size:13px;">执行查询后结果将显示在这里</p>
+      </div>
+    </div>
+    <!-- 分页 -->
+    <div class="pagination" id="pagination" style="display:none;">
+      <button id="prevBtn" onclick="changePage(-1)" disabled>上一页</button>
+      <span class="info" id="pageInfo">1 / 1</span>
+      <button id="nextBtn" onclick="changePage(1)" disabled>下一页</button>
+      <div style="flex:1;"></div>
+      <span class="info">每页</span>
+      <select id="pageSizeSelect" onchange="changePageSize()">
+        <option value="20">20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+      <span class="info">条</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = location.origin + '/api/db-viewer';
+let PWD = localStorage.getItem('db_viewer_pwd') || '';
+let currentTable = '';
+let currentPage = 1;
+let pageSize = 20;
+let totalPages = 1;
+let currentTab = 'data';
+let currentStructure = [];
+let currentData = null;
+
+// ========== 登录 ==========
+function doLogin() {
+  PWD = document.getElementById('pwdInput').value.trim();
+  if (!PWD) return;
+  fetch(BASE + '/tables?pwd=' + encodeURIComponent(PWD))
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
+      localStorage.setItem('db_viewer_pwd', PWD);
+      data.forEach(t => { if (t.description) TABLE_DESC[t.name] = t.description; });
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('app').classList.add('active');
+      renderTables(data);
+    })
+    .catch(err => {
+      const el = document.getElementById('loginError');
+      el.textContent = err.message || '密码错误';
+      el.style.display = 'block';
+    });
+}
+
+document.getElementById('pwdInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// 自动登录（有缓存密码时）
+(async function autoLogin() {
+  if (!PWD) return;
+  try {
+    const res = await fetch(BASE + '/tables?pwd=' + encodeURIComponent(PWD));
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    data.forEach(t => { if (t.description) TABLE_DESC[t.name] = t.description; });
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('app').classList.add('active');
+    renderTables(data);
+  } catch {
+    localStorage.removeItem('db_viewer_pwd');
+    PWD = '';
+  }
+})();
+
+// ========== 表列表 ==========
+let TABLE_DESC = {}; // 从数据库动态加载
+
+function renderTables(tables) {
+  const el = document.getElementById('tableList');
+  el.innerHTML = tables.map(t => {
+    const desc = TABLE_DESC[t.name] || t.description || '';
+    const shortDesc = desc ? desc.split('：')[0] : '';
+    return `<div class="table-item" data-name="${t.name}" onclick="selectTable('${t.name}')" title="${esc(desc)}">${t.name}${shortDesc ? '<span style="margin-left:auto;font-size:10px;color:#aaa;max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(shortDesc) + '</span>' : ''}</div>`;
+  }).join('');
+}
+
+async function selectTable(name) {
+  currentTable = name;
+  currentPage = 1;
+  currentTab = 'data';
+  document.querySelectorAll('.table-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.name === name);
+  });
+  document.getElementById('currentTableName').textContent = name;
+  document.getElementById('rowCount').style.display = '';
+  document.getElementById('btnAddRow').style.display = '';
+  document.getElementById('btnRefresh').style.display = '';
+  document.getElementById('btnExport').style.display = '';
+  const desc = TABLE_DESC[name] || '';
+  document.getElementById('tableDesc').textContent = desc || '点击此处添加描述';
+  document.getElementById('tableDesc').style.cursor = 'pointer';
+  document.getElementById('tableDesc').style.color = desc ? '#8b8fa3' : '#ccc';
+  document.getElementById('tableDesc').title = '点击编辑描述';
+  document.getElementById('tableDesc').onclick = () => editTableDesc(name);
+  switchTab('data');
+  await Promise.all([loadStructure(), loadData()]);
+}
+
+// ========== 加载数据 ==========
+async function loadData() {
+  const url = `${BASE}/table/${encodeURIComponent(currentTable)}?pwd=${encodeURIComponent(PWD)}&page=${currentPage}&pageSize=${pageSize}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    currentData = data;
+    totalPages = data.totalPages;
+    document.getElementById('rowCount').textContent = data.total + ' 条记录';
+    renderDataTable(data);
+    updatePagination();
+  } catch (err) {
+    document.getElementById('dataView').innerHTML = `<p style="color:#f87171;padding:20px;">${esc(err.message)}</p>`;
+  }
+}
+
+// ========== 加载表结构 ==========
+async function loadStructure() {
+  const url = `${BASE}/table/${encodeURIComponent(currentTable)}/structure?pwd=${encodeURIComponent(PWD)}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    currentStructure = data;
+    renderStructure(data);
+  } catch (err) {
+    document.getElementById('structureView').innerHTML = `<p style="color:#f87171;">${esc(err.message)}</p>`;
+  }
+}
+
+// ========== 渲染数据表格（带操作列） ==========
+function renderDataTable(data) {
+  if (!data.columns || data.columns.length === 0) {
+    document.getElementById('dataView').innerHTML = '<p style="color:#475569;padding:20px;">表为空，点击上方 "+ 新增行" 添加数据</p>';
+    return;
+  }
+  const pkCols = currentStructure.filter(c => c.pk).map(c => c.name);
+
+  let html = '<table><thead><tr>';
+  data.columns.forEach(col => { html += `<th>${esc(col)}</th>`; });
+  html += '<th style="min-width:120px;">操作</th></tr></thead><tbody>';
+
+  data.rows.forEach((row, rowIdx) => {
+    // 构建 where 条件（优先用主键，否则用所有列）
+    let where = {};
+    if (pkCols.length > 0) {
+      pkCols.forEach(pk => {
+        const idx = data.columns.indexOf(pk);
+        if (idx >= 0) where[pk] = row[idx];
+      });
+    }
+
+    html += '<tr>';
+    row.forEach((cell, i) => {
+      const colName = data.columns[i];
+      let cls = '';
+      let display = '';
+      if (cell === null || cell === undefined) {
+        cls = 'null';
+        display = 'NULL';
+      } else if (typeof cell === 'number') {
+        cls = 'num';
+        display = String(cell);
+      } else {
+        const s = String(cell);
+        display = s.length > 150 ? s.substring(0, 150) + '…' : esc(s);
+      }
+      html += `<td class="${cls}" title="${esc(String(cell ?? 'NULL'))}" ondblclick="editCell(this, ${rowIdx}, '${esc(colName)}')">${display}</td>`;
+    });
+
+    html += `<td class="actions-cell">`;
+    html += `<button class="btn-sm" onclick='showEditModal(${rowIdx})'>编辑</button>`;
+    if (Object.keys(where).length > 0) {
+      html += `<button class="btn-sm del" onclick='deleteRow(${JSON.stringify(where).replace(/'/g, "\\'")})'>删除</button>`;
+    }
+    html += `</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('dataView').innerHTML = html;
+}
+
+// ========== 渲染表结构 ==========
+function renderStructure(cols) {
+  let html = '<table><thead><tr><th>CID</th><th>列名</th><th>类型</th><th>非空</th><th>默认值</th><th>主键</th></tr></thead><tbody>';
+  cols.forEach(c => {
+    html += `<tr>
+      <td class="num">${c.cid}</td>
+      <td class="${c.pk ? 'pk' : ''}">${esc(c.name)}</td>
+      <td>${esc(c.type || '-')}</td>
+      <td>${c.notnull ? '✓' : ''}</td>
+      <td class="${c.dflt_value === null ? 'null' : ''}">${c.dflt_value === null ? 'NULL' : esc(String(c.dflt_value))}</td>
+      <td>${c.pk ? '🔑' : ''}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('structureView').innerHTML = html;
+}
+
+// ========== 分页 ==========
+function updatePagination() {
+  document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
+  document.getElementById('prevBtn').disabled = currentPage <= 1;
+  document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+}
+
+function changePage(delta) {
+  const newPage = currentPage + delta;
+  if (newPage < 1 || newPage > totalPages) return;
+  currentPage = newPage;
+  loadData();
+}
+
+function changePageSize() {
+  pageSize = parseInt(document.getElementById('pageSizeSelect').value);
+  currentPage = 1;
+  loadData();
+}
+
+// ========== Tab 切换 ==========
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+  document.getElementById('dataView').style.display = tab === 'data' ? 'block' : 'none';
+  document.getElementById('structureView').style.display = tab === 'structure' ? 'block' : 'none';
+  document.getElementById('sqlView').style.display = tab === 'sql' ? 'flex' : 'none';
+  document.getElementById('pagination').style.display = tab === 'data' ? 'flex' : 'none';
+}
+
+// ========== 新增行弹窗 ==========
+function showAddModal() {
+  if (!currentStructure.length) { toast('请先选择表', 'error'); return; }
+
+  let fieldsHtml = '';
+  currentStructure.forEach(col => {
+    const hint = [];
+    if (col.pk) hint.push('主键');
+    if (col.notnull) hint.push('必填');
+    if (col.dflt_value !== null) hint.push('默认: ' + col.dflt_value);
+    fieldsHtml += `
+      <div class="field">
+        <label>${esc(col.name)}${col.type ? ' (' + esc(col.type) + ')' : ''}</label>
+        <input data-col="${esc(col.name)}" placeholder="${col.pk && col.type === 'INTEGER' ? '留空则自增' : ''}">
+        ${hint.length ? `<div class="hint">${hint.join(' | ')}</div>` : ''}
+      </div>`;
+  });
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>新增行 - ${esc(currentTable)}</h3>
+        ${fieldsHtml}
+        <div class="btn-row">
+          <button class="btn-cancel" onclick="closeModal()">取消</button>
+          <button class="btn-confirm" onclick="doAddRow()">确认添加</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function doAddRow() {
+  const inputs = document.querySelectorAll('#modalOverlay input[data-col]');
+  const row = {};
+  inputs.forEach(input => {
+    const val = input.value.trim();
+    if (val !== '') {
+      row[input.dataset.col] = val;
+    }
+  });
+  if (Object.keys(row).length === 0) { toast('请至少填写一个字段', 'error'); return; }
+
+  try {
+    const res = await fetch(`${BASE}/table/${encodeURIComponent(currentTable)}?pwd=${encodeURIComponent(PWD)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    toast('新增成功');
+    closeModal();
+    loadData();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ========== 编辑行弹窗 ==========
+function showEditModal(rowIdx) {
+  if (!currentData) return;
+  const { columns, rows } = currentData;
+  const row = rows[rowIdx];
+  const pkCols = currentStructure.filter(c => c.pk).map(c => c.name);
+
+  let fieldsHtml = '';
+  columns.forEach((col, i) => {
+    const val = row[i] === null || row[i] === undefined ? '' : String(row[i]);
+    const isPk = pkCols.includes(col);
+    fieldsHtml += `
+      <div class="field">
+        <label>${esc(col)}${isPk ? ' (主键)' : ''}</label>
+        <input data-col="${esc(col)}" value="${esc(val)}" ${isPk ? 'readonly style="opacity:0.5;cursor:not-allowed;"' : ''}>
+      </div>`;
+  });
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>编辑行 - ${esc(currentTable)}</h3>
+        ${fieldsHtml}
+        <div class="btn-row">
+          <button class="btn-cancel" onclick="closeModal()">取消</button>
+          <button class="btn-confirm" onclick="doEditRow(${rowIdx})">保存修改</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function doEditRow(rowIdx) {
+  const { columns, rows } = currentData;
+  const row = rows[rowIdx];
+  const pkCols = currentStructure.filter(c => c.pk).map(c => c.name);
+
+  // 构建 where
+  const where = {};
+  if (pkCols.length > 0) {
+    pkCols.forEach(pk => {
+      const idx = columns.indexOf(pk);
+      if (idx >= 0) where[pk] = row[idx];
+    });
+  }
+
+  // 构建 set
+  const inputs = document.querySelectorAll('#modalOverlay input[data-col]');
+  const set = {};
+  inputs.forEach(input => {
+    const col = input.dataset.col;
+    if (pkCols.includes(col)) return; // 跳过主键
+    set[col] = input.value.trim() === '' ? null : input.value.trim();
+  });
+
+  if (Object.keys(set).length === 0) { toast('没有可修改的字段', 'error'); return; }
+  if (Object.keys(where).length === 0) { toast('无法确定要修改的行（缺少主键）', 'error'); return; }
+
+  try {
+    const res = await fetch(`${BASE}/table/${encodeURIComponent(currentTable)}?pwd=${encodeURIComponent(PWD)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ set, where })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    toast('更新成功');
+    closeModal();
+    loadData();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ========== 删除行 ==========
+async function deleteRow(where) {
+  if (!confirm('确定要删除这条记录吗？')) return;
+  try {
+    const res = await fetch(`${BASE}/table/${encodeURIComponent(currentTable)}?pwd=${encodeURIComponent(PWD)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ where })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    toast('删除成功');
+    loadData();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ========== 双击单元格快速编辑 ==========
+function editCell(td, rowIdx, colName) {
+  if (!currentData) return;
+  const { columns, rows } = currentData;
+  const colIdx = columns.indexOf(colName);
+  if (colIdx < 0) return;
+
+  const pkCols = currentStructure.filter(c => c.pk).map(c => c.name);
+  const row = rows[rowIdx];
+  const oldVal = row[colIdx] === null ? '' : String(row[colIdx]);
+
+  // 变成 input
+  td.innerHTML = `<input type="text" value="${esc(oldVal)}" style="width:100%;background:#fff;border:1px solid #5b7fff;border-radius:4px;color:#1a1a2e;padding:2px 6px;font-size:13px;outline:none;">`;
+  const input = td.querySelector('input');
+  input.focus();
+  input.select();
+
+  const save = async () => {
+    const newVal = input.value;
+    if (newVal === oldVal) {
+      // 还原
+      td.innerHTML = oldVal === '' ? '<span class="null">NULL</span>' : esc(oldVal.length > 150 ? oldVal.substring(0, 150) + '…' : oldVal);
+      return;
+    }
+
+    // 构建 where
+    const where = {};
+    pkCols.forEach(pk => {
+      const idx = columns.indexOf(pk);
+      if (idx >= 0) where[pk] = row[idx];
+    });
+    if (Object.keys(where).length === 0) { toast('缺少主键，无法更新', 'error'); return; }
+
+    const set = { [colName]: newVal === '' ? null : newVal };
+
+    try {
+      const res = await fetch(`${BASE}/table/${encodeURIComponent(currentTable)}?pwd=${encodeURIComponent(PWD)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ set, where })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      toast('已更新');
+      loadData();
+    } catch (err) {
+      toast(err.message, 'error');
+      td.innerHTML = oldVal === '' ? '<span class="null">NULL</span>' : esc(oldVal);
+    }
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { td.innerHTML = oldVal === '' ? '<span class="null">NULL</span>' : esc(oldVal); }
+  });
+}
+
+// ========== SQL 查询 ==========
+async function runSQL() {
+  const sql = document.getElementById('sqlInput').value.trim();
+  if (!sql) return;
+  const el = document.getElementById('sqlResult');
+  el.innerHTML = '<p style="color:#64748b;">执行中...</p>';
+  try {
+    const res = await fetch(BASE + '/query?pwd=' + encodeURIComponent(PWD), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    // INSERT/UPDATE/DELETE 返回 { success, message }
+    if (data.success) {
+      el.innerHTML = `<p style="color:#34d399;font-size:13px;">✓ ${esc(data.message || '执行成功')}</p>`;
+      // 如果当前在数据视图，刷新
+      if (currentTable) loadData();
+      return;
+    }
+
+    // SELECT 返回数组
+    if (!data.length) {
+      el.innerHTML = '<p style="color:#64748b;">查询成功，无返回数据</p>';
+      return;
+    }
+
+    let html = '';
+    data.forEach((result, idx) => {
+      html += `<div class="result-info">结果集 ${idx + 1}：${result.values.length} 行</div>`;
+      html += '<table><thead><tr>';
+      result.columns.forEach(col => { html += `<th>${esc(col)}</th>`; });
+      html += '</tr></thead><tbody>';
+      result.values.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => {
+          let cls = '';
+          let display = '';
+          if (cell === null || cell === undefined) { cls = 'null'; display = 'NULL'; }
+          else if (typeof cell === 'number') { cls = 'num'; display = String(cell); }
+          else { const s = String(cell); display = s.length > 200 ? s.substring(0, 200) + '…' : esc(s); }
+          html += `<td class="${cls}" title="${esc(String(cell ?? 'NULL'))}">${display}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+    });
+    el.innerHTML = html;
+  } catch (err) {
+    el.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+  }
+}
+
+document.getElementById('sqlInput').addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); runSQL(); }
+});
+
+// ========== 编辑表描述 ==========
+function editTableDesc(name) {
+  const current = TABLE_DESC[name] || '';
+  const html = `
+    <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>编辑描述 - ${esc(name)}</h3>
+        <div class="field">
+          <label>表描述</label>
+          <textarea id="descInput" placeholder="输入表的用途说明">${esc(current)}</textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn-cancel" onclick="closeModal()">取消</button>
+          <button class="btn-confirm" onclick="saveTableDesc('${esc(name)}')">保存</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveTableDesc(name) {
+  const desc = document.getElementById('descInput').value.trim();
+  try {
+    const res = await fetch(`${BASE}/table-desc/${encodeURIComponent(name)}?pwd=${encodeURIComponent(PWD)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: desc })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    TABLE_DESC[name] = desc;
+    document.getElementById('tableDesc').textContent = desc || '点击此处添加描述';
+    document.getElementById('tableDesc').style.color = desc ? '#8b8fa3' : '#ccc';
+    // 刷新侧边栏
+    const tables = Object.keys(TABLE_DESC).map(n => ({ name: n, description: TABLE_DESC[n] }));
+    // 保留没有描述的表
+    document.querySelectorAll('.table-item').forEach(el => {
+      const tName = el.dataset.name;
+      if (!tables.find(t => t.name === tName)) tables.push({ name: tName, description: '' });
+    });
+    renderTables(tables);
+    // 重新高亮
+    document.querySelectorAll('.table-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.name === name);
+    });
+    toast('描述已保存');
+    closeModal();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ========== 弹窗/Toast 工具 ==========
+function logout() {
+  localStorage.removeItem('db_viewer_pwd');
+  PWD = '';
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('pwdInput').value = '';
+  document.getElementById('loginError').style.display = 'none';
+}
+
+function closeModal() {
+  const m = document.getElementById('modalOverlay');
+  if (m) m.remove();
+}
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ========== 导出 CSV ==========
+function exportCSV() {
+  if (!currentData || !currentData.columns) return;
+  const { columns, rows } = currentData;
+  let csv = columns.map(c => '"' + c + '"').join(',') + '\n';
+  rows.forEach(row => {
+    csv += row.map(cell => {
+      if (cell === null || cell === undefined) return '';
+      return '"' + String(cell).replace(/"/g, '""') + '"';
+    }).join(',') + '\n';
+  });
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = currentTable + '.csv';
+  a.click();
+}
+
+// ========== 转义 ==========
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>

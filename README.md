@@ -112,7 +112,29 @@ Pulse/
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v0.1.0-beta.1 | 2026-09-06 | 内测一号版本，包含基础聊天、音视频通话、注册验证、管理后台、数据库可视化 |
+| v0.2.0-beta.2 | 2026-09-07 | 内测二号版本，全站清新 UI 改版，默认浅色主题，按钮文字改白色，验证码改数字计算 |
+| v0.3.0-beta.3 | 2026-09-07 | 实时通知系统、群聊增强（实时通知/群成员接口）、扫码 jsQR 兼容性修复、通话挂断重复消息修复 |
 
 ## License
 
-MIT
+[MIT License](./LICENSE)
+
+Copyright (c) 2026 Pulse
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

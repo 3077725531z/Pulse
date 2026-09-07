@@ -9,6 +9,7 @@ import ChatDetail from './pages/ChatDetail';
 import ContactsPage from './pages/ContactsPage';
 import SettingsPage from './pages/SettingsPage';
 import AdminPage from './pages/AdminPage';
+import AppDownloadPage from './pages/AppDownloadPage';
 import CallModal from './pages/CallModal';
 
 class ErrorBoundary extends Component {
@@ -117,7 +118,8 @@ function AppContent() {
   const { t } = useI18n();
   const [page, _setPage] = useState(() => localStorage.getItem('pulse_page') || 'home');
   const setPage = (p) => { localStorage.setItem('pulse_page', p); _setPage(p); };
-  const [chatConv, setChatConv] = useState(null);   // 当前打开的会�?
+  const [chatConv, setChatConv] = useState(null);
+  const [showDownload, setShowDownload] = useState(false);
   useSocket();
 
   useEffect(() => {
@@ -126,8 +128,34 @@ function AppContent() {
 
   if (!isLoggedIn) {
     localStorage.removeItem('pulse_page');
-    return <LoginPage />;
+    return (
+      <div className="h-full relative">
+        <LoginPage />
+        {/* 登录页右上角 App 下载入口 */}
+        <button
+          onClick={() => setShowDownload(true)}
+          className="absolute top-4 right-4 z-30 flex items-center gap-1.5 px-3 h-9 rounded-full text-xs font-medium transition-all hover:opacity-90"
+          style={{
+            background: 'rgba(255,255,255,0.85)',
+            color: '#2d3748',
+            border: '1px solid rgba(0,0,0,0.05)',
+            backdropFilter: 'blur(24px)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          App 下载
+        </button>
+        {showDownload && <AppDownloadPage onBack={() => setShowDownload(false)} />}
+      </div>
+    );
   }
+
+  if (showDownload) return <AppDownloadPage onBack={() => setShowDownload(false)} />;
 
   if (page === 'admin' && user?.isAdmin) return <AdminPage onBack={() => setPage('home')} />;
 
@@ -144,8 +172,20 @@ function AppContent() {
           <>
             {page === 'home' && (
               <>
-                <div className="px-6 pt-1 pb-3 shrink-0">
+                <div className="px-6 pt-1 pb-3 shrink-0 flex items-center justify-between">
                   <h1 className="text-[30px] font-bold tracking-tight text-t1">{t('nav_home')}</h1>
+                  <button
+                    onClick={() => setShowDownload(true)}
+                    className="flex items-center gap-1.5 px-3 h-9 rounded-full text-xs font-medium glass transition-all hover:opacity-90"
+                    title="App 下载"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    App 下载
+                  </button>
                 </div>
                 <ChatList onSelect={(conv) => setChatConv(conv)} />
               </>

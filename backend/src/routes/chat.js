@@ -6,11 +6,18 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
+import { execSync } from 'child_process';
 import db from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { notifyUser } from '../services/socket.js';
 
-ffmpeg.setFfmpegPath(ffmpegPath.path);
+// 优先使用系统 ffmpeg，找不到时回退到包内置的
+let resolvedFfmpegPath = ffmpegPath.path;
+try {
+  const sysPath = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8' }).trim();
+  if (sysPath && fs.existsSync(sysPath)) resolvedFfmpegPath = sysPath;
+} catch {}
+ffmpeg.setFfmpegPath(resolvedFfmpegPath);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

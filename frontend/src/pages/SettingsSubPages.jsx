@@ -425,7 +425,7 @@ export function HelpPage({ onBack }) {
   return (
     <SubPageShell title={t('help_title')} onBack={onBack}>
       <div className="glass rounded-glass p-4 mb-5 flex items-center gap-3">
-        <img src={user?.avatar ? `http://localhost:3000${user.avatar}` : ''} alt="" className="w-10 h-10 rounded-full object-cover bg-glass-m" />
+        <img src={user?.avatar ? user.avatar : ''} alt="" className="w-10 h-10 rounded-full object-cover bg-glass-m" />
         <div>
           <div className="text-sm font-medium text-t1">{user?.nickname || user?.username}</div>
           <div className="text-xs text-t3">PulseID: {user?.pulseId}</div>

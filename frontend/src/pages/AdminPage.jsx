@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../utils/api';
 import { useAuthStore } from '../store/authStore';
 
@@ -129,6 +129,20 @@ export default function AdminPage({ onBack }) {
   const [dbPassword, setDbPassword] = useState('');
   const [dbRemaining, setDbRemaining] = useState(30);
 
+  // 部署相关
+  const [apps, setApps] = useState([]);
+  const [deployTarget, setDeployTarget] = useState('backend');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [deployMessage, setDeployMessage] = useState('');
+  const [restarting, setRestarting] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [buildLogs, setBuildLogs] = useState([]);
+  const [buildProgress, setBuildProgress] = useState(0);
+  const [deployStatus, setDeployStatus] = useState(null);
+  const [autoBuild, setAutoBuild] = useState(true);
+  const [autoRestart, setAutoRestart] = useState(false);
+  const buildAbortRef = useRef(null);
+
   // 动态密码：前端每秒倒计时，到0时从后端刷新
   useEffect(() => {
     let mounted = true;
@@ -201,6 +215,274 @@ export default function AdminPage({ onBack }) {
     if (tab === 'recordings') loadRecordings();
     if (tab === 'announcements') loadAnnouncements();
     if (tab === 'feedback') loadFeedbacks();
+    if (tab === 'deploy') { loadApps(); loadDeployStatus(); }
+  };
+
+  // ===== 部署相关：加载 App 列表 =====
+  const loadApps = async () => {
+    try {
+      const { data } = await api.get('/admin/deploy/apps');
+      setApps(data);
+    } catch (err) {
+      setDeployMessage('加载 App 列表失败：' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // 加载部署状态
+  const loadDeployStatus = async () => {
+    try {
+      const { data } = await api.get('/admin/deploy/status');
+      setDeployStatus(data);
+    } catch (err) {
+      // 静默失败
+    }
+  };
+
+  // 构建前端（使用 SSE 实时接收日志）
+  const handleBuild = () => {
+    if (building) return;
+    if (!confirm('确定开始构建前端？构建过程会清空 backend/public 目录并重新打包，期间前端可能短暂无法访问。')) return;
+
+    setBuilding(true);
+    setBuildLogs([]);
+    setBuildProgress(0);
+    setDeployMessage('正在构建前端...');
+
+    // AbortController：用于主动取消构建
+    const controller = new AbortController();
+    buildAbortRef.current = controller;
+
+    // Vite 构建进度估算（根据日志关键阶段）
+    const updateProgress = (text) => {
+      if (/building for production/i.test(text)) setBuildProgress(5);
+      else if (/transforming/i.test(text)) setBuildProgress(15);
+      else if (/modules transformed/i.test(text)) setBuildProgress(60);
+      else if (/rendering chunks/i.test(text)) setBuildProgress(75);
+      else if (/computing gzip size/i.test(text)) setBuildProgress(90);
+      else if (/built in/i.test(text)) setBuildProgress(100);
+    };
+
+    // 使用 fetch 接收 SSE 流
+    const baseURL = api.defaults?.baseURL || '';
+    const token = localStorage.getItem('token');
+    const url = `${baseURL}/admin/deploy/build`;
+
+    fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+      signal: controller.signal,
+    }).then(async (response) => {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // 解析 SSE 格式：data: {...}\n\n
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const msg = JSON.parse(line.slice(6));
+            if (msg.type === 'log') {
+              updateProgress(msg.data);
+              setBuildLogs(prev => [...prev, msg.data]);
+            } else if (msg.type === 'done') {
+              const result = JSON.parse(msg.data);
+              if (result.success) {
+                setBuildProgress(100);
+                setDeployMessage('✓ 前端构建成功，请重启系统使更改生效');
+              } else {
+                setDeployMessage('✗ 前端构建失败，请查看日志');
+              }
+            }
+          } catch (e) {
+            // 忽略解析失败的行
+          }
+        }
+      }
+    }).catch(err => {
+      if (err.name === 'AbortError') {
+        setDeployMessage('已取消构建');
+        setBuildLogs(prev => [...prev, '\n>>> 用户已取消构建\n']);
+      } else {
+        setDeployMessage('✗ 构建请求失败：' + err.message);
+      }
+    }).finally(() => {
+      setBuilding(false);
+      buildAbortRef.current = null;
+      loadDeployStatus();
+    });
+  };
+
+  // 取消构建
+  const handleCancelBuild = () => {
+    if (buildAbortRef.current) {
+      if (!confirm('确定取消构建？正在进行的构建进程将被终止。')) return;
+      buildAbortRef.current.abort();
+    }
+  };
+
+  // 上传代码包
+  const handleCodeUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadProgress(0);
+    setDeployMessage('正在上传代码包...');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('target', deployTarget);
+    try {
+      const { data } = await api.post('/admin/deploy/code', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (ev) => {
+          if (ev.total) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        },
+      });
+      setDeployMessage(`✓ ${data.message}（解压 ${data.fileCount} 个文件）`);
+
+      // 上传前端代码后，自动触发构建
+      if (autoBuild && (deployTarget === 'frontend' || deployTarget === 'root')) {
+        setTimeout(() => {
+          setDeployMessage('上传完成，自动开始构建前端...');
+          // 直接调用构建逻辑
+          setBuilding(true);
+          setBuildLogs([]);
+          setBuildProgress(0);
+          const controller = new AbortController();
+          buildAbortRef.current = controller;
+
+          const updateProgress = (text) => {
+            if (/building for production/i.test(text)) setBuildProgress(5);
+            else if (/transforming/i.test(text)) setBuildProgress(15);
+            else if (/modules transformed/i.test(text)) setBuildProgress(60);
+            else if (/rendering chunks/i.test(text)) setBuildProgress(75);
+            else if (/computing gzip size/i.test(text)) setBuildProgress(90);
+            else if (/built in/i.test(text)) setBuildProgress(100);
+          };
+
+          const baseURL = api.defaults?.baseURL || '';
+          const token = localStorage.getItem('token');
+          fetch(`${baseURL}/admin/deploy/build`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` },
+            signal: controller.signal,
+          }).then(async (response) => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n\n');
+              buffer = lines.pop() || '';
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const msg = JSON.parse(line.slice(6));
+                  if (msg.type === 'log') {
+                    updateProgress(msg.data);
+                    setBuildLogs(prev => [...prev, msg.data]);
+                  } else if (msg.type === 'done') {
+                    const result = JSON.parse(msg.data);
+                    if (result.success) {
+                      setBuildProgress(100);
+                      setDeployMessage('✓ 前端构建成功');
+                      // 自动重启
+                      if (autoRestart) {
+                        setTimeout(() => handleRestart(), 500);
+                      }
+                    } else {
+                      setDeployMessage('✗ 前端构建失败，请查看日志');
+                    }
+                  }
+                } catch (e) {}
+              }
+            }
+          }).catch(err => {
+            if (err.name !== 'AbortError') {
+              setDeployMessage('✗ 构建请求失败：' + err.message);
+            }
+          }).finally(() => {
+            setBuilding(false);
+            buildAbortRef.current = null;
+            loadDeployStatus();
+          });
+        }, 300);
+      } else if (autoRestart) {
+        // 只上传后端代码且开启自动重启
+        setTimeout(() => handleRestart(), 500);
+      }
+    } catch (err) {
+      setDeployMessage('✗ 上传失败：' + (err.response?.data?.error || err.message));
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // 上传 App 安装包
+  const handleAppUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadProgress(0);
+    setDeployMessage('正在上传 App 安装包...');
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      await api.post('/admin/deploy/app', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (ev) => {
+          if (ev.total) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        },
+      });
+      setDeployMessage(`✓ App 安装包上传成功：${file.name}`);
+      loadApps();
+    } catch (err) {
+      setDeployMessage('✗ 上传失败：' + (err.response?.data?.error || err.message));
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  // 删除 App 安装包
+  const handleDeleteApp = async (filename) => {
+    if (!confirm(`确定删除 ${filename}？`)) return;
+    try {
+      await api.delete(`/admin/deploy/apps/${encodeURIComponent(filename)}`);
+      loadApps();
+    } catch (err) {
+      setDeployMessage('删除失败：' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // 重启系统
+  const handleRestart = async () => {
+    if (!confirm('⚠️ 确定重启系统？这会导致服务短暂中断（约 5-10 秒）。\n\n建议先上传代码包后再重启。')) return;
+    setRestarting(true);
+    setDeployMessage('正在重启...');
+    try {
+      const { data } = await api.post('/admin/deploy/restart');
+      setDeployMessage(`✓ ${data.message}，PID: ${data.pid}。请等待几秒后刷新页面。`);
+      // 5 秒后尝试重新加载
+      setTimeout(() => {
+        setRestarting(false);
+        setDeployMessage('系统应已重启，请刷新页面验证。');
+      }, 5000);
+    } catch (err) {
+      setRestarting(false);
+      // 重启后连接断开是正常现象，不一定是错误
+      if (err.code === 'ECONNABORTED' || !err.response) {
+        setDeployMessage('✓ 重启指令已发送，服务正在重启中，请等待几秒后刷新页面。');
+      } else {
+        setDeployMessage('✗ 重启失败：' + (err.response?.data?.error || err.message));
+      }
+    }
   };
 
   // 筛选逻辑
@@ -242,6 +524,7 @@ export default function AdminPage({ onBack }) {
     { id: 'recordings', label: '录制文件', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg> },
     { id: 'announcements', label: '系统公告', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
     { id: 'feedback', label: '用户反馈', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="10" x2="15" y2="10"/></svg> },
+    { id: 'deploy', label: '部署', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> },
   ];
 
   return (
@@ -369,7 +652,7 @@ export default function AdminPage({ onBack }) {
                     {stats.recentUsers.map((u, i) => (
                       <div key={i} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
                         <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-xs font-bold text-accent">
-                          {u.avatar ? <img src={`http://localhost:3000${u.avatar}`} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}
+                          {u.avatar ? <img src={u.avatar} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}
                         </div>
                         <div className="flex-1">
                           <div className="text-sm text-t1">{u.nickname}</div>
@@ -717,7 +1000,7 @@ export default function AdminPage({ onBack }) {
                     <div key={f.id} className="glass rounded-xl p-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          {f.avatar ? <img src={`http://localhost:3000${f.avatar}`} alt="" className="w-6 h-6 rounded-full object-cover" /> : <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">{(f.nickname || 'U')[0]}</div>}
+                          {f.avatar ? <img src={f.avatar} alt="" className="w-6 h-6 rounded-full object-cover" /> : <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">{(f.nickname || 'U')[0]}</div>}
                           <span className="text-sm font-medium text-t1">{f.nickname}</span>
                           <span className="text-xs text-t3">@{f.username}</span>
                         </div>
@@ -747,6 +1030,280 @@ export default function AdminPage({ onBack }) {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ========== Deploy 部署 ========== */}
+          {activeTab === 'deploy' && (
+            <div>
+              <h2 className="text-lg font-semibold text-t1 mb-4">部署管理</h2>
+
+              {/* 提示信息 */}
+              {deployMessage && (
+                <div className="glass rounded-xl p-3 mb-4 text-sm text-t1 flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  {deployMessage}
+                </div>
+              )}
+
+              {/* 部署状态卡片 */}
+              {deployStatus && (
+                <div className="glass rounded-xl p-4 mb-4">
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div>
+                      <div className="text-xs text-t3 mb-1">应用版本</div>
+                      <div className="text-sm font-medium text-t1">v{deployStatus.version || '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-t3 mb-1">前端构建</div>
+                      <div className="text-sm font-medium" style={{ color: deployStatus.frontendBuilt ? '#22c55e' : '#ef4444' }}>
+                        {deployStatus.frontendBuilt ? '已构建' : '未构建'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-t3 mb-1">最近构建时间</div>
+                      <div className="text-sm font-medium text-t1">
+                        {deployStatus.buildTime ? new Date(deployStatus.buildTime).toLocaleString() : '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-t3 mb-1">App 安装包</div>
+                      <div className="text-sm font-medium text-t1">
+                        {deployStatus.appCount} 个 · {formatFileSize(deployStatus.totalAppSize || 0)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 上传进度条 */}
+              {uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="mb-4">
+                  <div className="text-xs text-t3 mb-1">上传进度：{uploadProgress}%</div>
+                  <div className="h-2 bg-glass rounded-full overflow-hidden">
+                    <div className="h-full bg-accent transition-all" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-4">
+                {/* 代码包上传 */}
+                <div className="glass rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: '#38bdf815' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-t1">上传代码包</div>
+                      <div className="text-xs text-t3">上传 .zip 自动解压</div>
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-xs text-t2 block mb-1">解压目录</label>
+                    <select
+                      value={deployTarget}
+                      onChange={e => setDeployTarget(e.target.value)}
+                      className="w-full h-9 glass rounded-lg px-3 text-sm text-t1 outline-none"
+                    >
+                      <option value="backend">backend（后端）</option>
+                      <option value="frontend">frontend（前端）</option>
+                      <option value="root">root（整个项目）</option>
+                    </select>
+                  </div>
+                  <label className="block w-full h-10 bg-accent rounded-lg text-sm font-medium text-center leading-10 cursor-pointer hover:opacity-90 transition-opacity" style={{ color: '#fff' }}>
+                    选择 .zip 文件上传
+                    <input type="file" accept=".zip" onChange={handleCodeUpload} className="hidden" />
+                  </label>
+
+                  {/* 自动化选项 */}
+                  <div className="mt-3 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoBuild}
+                        onChange={e => setAutoBuild(e.target.checked)}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-xs text-t2">
+                        上传前端代码后<strong>自动构建</strong>
+                        <span className="text-t3">（推荐）</span>
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoRestart}
+                        onChange={e => setAutoRestart(e.target.checked)}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-xs text-t2">
+                        构建/上传后<strong>自动重启系统</strong>
+                        <span className="text-t3">（谨慎）</span>
+                      </span>
+                    </label>
+                  </div>
+
+                  <p className="text-xs text-t3 mt-2">
+                    保留 <code className="px-1 bg-glass-m rounded">.git</code>、<code className="px-1 bg-glass-m rounded">node_modules</code>、<code className="px-1 bg-glass-m rounded">.env</code>、<code className="px-1 bg-glass-m rounded">uploads</code>
+                  </p>
+                </div>
+
+                {/* 构建前端 */}
+                <div className="glass rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: '#a78bfa15' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-t1">构建前端</div>
+                      <div className="text-xs text-t3">npm run build → public</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleBuild}
+                      disabled={building}
+                      className="flex-1 h-10 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
+                      style={{ background: '#a78bfa', color: '#fff' }}
+                    >
+                      {building ? '构建中...' : '开始构建'}
+                    </button>
+                    {building && (
+                      <button
+                        onClick={handleCancelBuild}
+                        className="px-4 h-10 rounded-lg text-sm font-medium transition-opacity"
+                        style={{ background: '#ef4444', color: '#fff' }}
+                      >
+                        取消
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 构建进度条 */}
+                  {building && (
+                    <div className="mt-2">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-t3">进度</span>
+                        <span style={{ color: '#a78bfa', fontWeight: 600 }}>{buildProgress}%</span>
+                      </div>
+                      <div className="h-2 w-full bg-black/5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${buildProgress}%`,
+                            background: 'linear-gradient(90deg, #a78bfa, #c4b5fd)',
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-t3 mt-2">
+                    上传前端代码包后，点击此处执行 <code className="px-1 bg-glass-m rounded">npm run build</code>，
+                    产物会自动输出到 <code className="px-1 bg-glass-m rounded">backend/public</code>
+                  </p>
+                </div>
+
+                {/* App 安装包上传 */}
+                <div className="glass rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: '#22c55e15' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-t1">上传 App 安装包</div>
+                      <div className="text-xs text-t3">.apk / .ipa / .zip</div>
+                    </div>
+                  </div>
+                  <label className="block w-full h-10 bg-accent rounded-lg text-sm font-medium text-center leading-10 cursor-pointer hover:opacity-90 transition-opacity" style={{ color: '#fff' }}>
+                    选择 App 文件上传
+                    <input type="file" accept=".apk,.ipa,.zip" onChange={handleAppUpload} className="hidden" />
+                  </label>
+                  <p className="text-xs text-t3 mt-2">
+                    下载地址：<code className="px-1 bg-glass-m rounded">/uploads/apps/&lt;filename&gt;</code>，大小限制 1GB
+                  </p>
+                </div>
+              </div>
+
+              {/* 构建日志 */}
+              {buildLogs.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-t1">构建日志</h3>
+                    <button onClick={() => setBuildLogs([])} className="text-xs text-t3 hover:text-t1">清空</button>
+                  </div>
+                  <div className="glass rounded-xl p-3 h-64 overflow-y-auto font-mono text-xs">
+                    {buildLogs.map((log, i) => (
+                      <pre key={i} className="text-t2 whitespace-pre-wrap break-all">{log}</pre>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 重启系统 */}
+              <div className="glass rounded-xl p-5 mt-4 border border-red/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: '#ef444415' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-t1">重启系统</div>
+                      <div className="text-xs text-t3">构建/上传后点击此处使更改生效</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleRestart}
+                    disabled={restarting}
+                    className="px-4 h-9 rounded-lg text-sm font-medium transition-opacity disabled:opacity-50"
+                    style={{ background: '#ef4444', color: '#fff' }}
+                  >
+                    {restarting ? '重启中...' : '重启系统'}
+                  </button>
+                </div>
+              </div>
+
+              {/* App 安装包列表 */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-t1">App 安装包列表 ({apps.length})</h3>
+                  <button onClick={loadApps} className="text-xs text-accent hover:underline">刷新</button>
+                </div>
+                {apps.length === 0 ? (
+                  <div className="glass rounded-xl p-8 text-center">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto text-t3 mb-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <p className="text-t3 text-sm">暂无 App 安装包</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {apps.map(app => (
+                      <div key={app.filename} className="glass rounded-xl p-3 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: app.platform === 'ios' ? '#a78bfa15' : app.platform === 'android' ? '#22c55e15' : '#8896ab15' }}>
+                          <span className="text-xs font-bold" style={{ color: app.platform === 'ios' ? '#a78bfa' : app.platform === 'android' ? '#22c55e' : '#8896ab' }}>
+                            {app.platform === 'ios' ? 'iOS' : app.platform === 'android' ? 'APK' : 'ZIP'}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-t1 truncate">{app.filename}</div>
+                          <div className="text-xs text-t3">{formatFileSize(app.size)} · {new Date(app.uploadedAt).toLocaleString()}</div>
+                        </div>
+                        <a
+                          href={app.url}
+                          className="text-xs text-accent hover:underline px-2 py-1 rounded bg-accent/10"
+                          download
+                        >
+                          下载
+                        </a>
+                        <button
+                          onClick={() => handleDeleteApp(app.filename)}
+                          className="text-xs text-red hover:underline px-2 py-1 rounded bg-red/10"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

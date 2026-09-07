@@ -10,3 +10,5 @@ dist/
 !**/uploads/recordings/.gitkeep
 .DS_Store
 *.log
+*.zip
+backend/public/assets/

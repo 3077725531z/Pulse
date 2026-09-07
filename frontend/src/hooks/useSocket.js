@@ -53,7 +53,7 @@ export function useSocket() {
         if (s.notiPreview && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           new Notification(msg.sender_name || '新消息', {
             body: msg.type === 'text' ? msg.content : `[${msg.type === 'image' ? '图片' : msg.type === 'file' ? '文件' : '消息'}]`,
-            icon: msg.sender_avatar ? `http://localhost:3000${msg.sender_avatar}` : undefined,
+            icon: msg.sender_avatar ? msg.sender_avatar : undefined,
             silent: true,
           });
         }

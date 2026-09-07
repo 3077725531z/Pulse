@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
@@ -43,6 +44,34 @@ async function startServer() {
   // 健康检查
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
+  });
+
+  // 公开接口：获取 App 安装包列表（无需登录，供下载页使用）
+  app.get('/api/apps', (req, res) => {
+    try {
+      const appsDir = path.join(__dirname, '../uploads/apps');
+      if (!fs.existsSync(appsDir)) return res.json([]);
+      const files = fs.readdirSync(appsDir);
+      const list = files.map(f => {
+        const filePath = path.join(appsDir, f);
+        const stat = fs.statSync(filePath);
+        const ext = path.extname(f).toLowerCase();
+        let platform = 'unknown';
+        if (ext === '.apk') platform = 'android';
+        else if (ext === '.ipa') platform = 'ios';
+        else if (ext === '.zip') platform = 'zip';
+        return {
+          filename: f,
+          platform,
+          size: stat.size,
+          uploadedAt: stat.mtime.toISOString(),
+          url: `/uploads/apps/${encodeURIComponent(f)}`,
+        };
+      }).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+      res.json(list);
+    } catch (err) {
+      res.json([]);
+    }
   });
 
   // 数据库可视化页面（放在 public 目录外，避免被 vite build 清空）

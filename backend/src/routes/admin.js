@@ -4,6 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
 import { ZipArchive } from 'archiver';
+import AdmZip from 'adm-zip';
+import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
@@ -11,7 +13,13 @@ import db from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getCurrentPassword, getTimeRemaining } from './db-viewer.js';
 
-ffmpeg.setFfmpegPath(ffmpegPath.path);
+// 优先使用系统 ffmpeg，找不到时回退到包内置的
+let resolvedFfmpegPath = ffmpegPath.path;
+try {
+  const sysPath = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8' }).trim();
+  if (sysPath && fs.existsSync(sysPath)) resolvedFfmpegPath = sysPath;
+} catch {}
+ffmpeg.setFfmpegPath(resolvedFfmpegPath);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const recordingsDir = path.join(__dirname, '../../uploads/recordings');
@@ -32,6 +40,49 @@ const recordingStorage = multer.diskStorage({
 const recordingUpload = multer({
   storage: recordingStorage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+});
+
+// ========== 部署功能：代码包上传、App 安装包上传、重启 ==========
+const updatesDir = path.join(__dirname, '../../uploads/updates');
+const appsDir = path.join(__dirname, '../../uploads/apps');
+if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true });
+if (!fs.existsSync(appsDir)) fs.mkdirSync(appsDir, { recursive: true });
+
+// 代码包上传（zip）：保存到临时目录后解压替换
+const codeUpload = multer({
+  storage: multer.diskStorage({
+    destination: updatesDir,
+    filename: (req, file, cb) => {
+      const safeBase = path.basename(file.originalname).replace(/[^\w.-]/g, '_');
+      cb(null, `${Date.now()}-${safeBase}`);
+    },
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.zip') return cb(new Error('仅支持 .zip 文件'));
+    cb(null, true);
+  },
+});
+
+// App 安装包上传（apk/ipa）
+const appPackageUpload = multer({
+  storage: multer.diskStorage({
+    destination: appsDir,
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.apk';
+      const base = path.basename(file.originalname, ext).replace(/[^\w.-]/g, '_');
+      cb(null, `${base}-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!['.apk', '.ipa', '.zip'].includes(ext)) {
+      return cb(new Error('仅支持 .apk / .ipa / .zip 文件'));
+    }
+    cb(null, true);
+  },
 });
 
 const router = Router();
@@ -454,6 +505,337 @@ router.delete('/feedback/:id', (req, res) => {
 // 获取数据库可视化密码（仅管理员，每30秒刷新）
 router.get('/db-viewer-password', (req, res) => {
   res.json({ password: getCurrentPassword(), remaining: getTimeRemaining() });
+});
+
+// ========== 部署功能 ==========
+
+// 工具：安全地解析 zip 条目路径，防止路径穿越攻击
+function safeJoinPath(baseDir, targetPath) {
+  const normalized = path.normalize(targetPath).replace(/^([/\\]|\.\.\/|\.\.\\)+/, '');
+  const resolved = path.resolve(baseDir, normalized);
+  if (!resolved.startsWith(path.resolve(baseDir))) {
+    throw new Error(`检测到路径穿越：${targetPath}`);
+  }
+  return resolved;
+}
+
+// 工具：递归删除目录
+function rmrf(dirPath) {
+  if (!fs.existsSync(dirPath)) return;
+  for (const entry of fs.readdirSync(dirPath)) {
+    const full = path.join(dirPath, entry);
+    if (fs.statSync(full).isDirectory()) {
+      rmrf(full);
+    } else {
+      try { fs.unlinkSync(full); } catch {}
+    }
+  }
+  try { fs.rmdirSync(dirPath); } catch {}
+}
+
+// 上传代码包并解压
+// 接收字段：file（zip）、target（可选，'backend' | 'frontend' | 'root'，默认 root）
+router.post('/deploy/code', codeUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '未上传文件' });
+
+  const target = (req.body.target || 'root').toLowerCase();
+  const validTargets = { root: 'root', backend: 'backend', frontend: 'frontend' };
+  if (!validTargets[target]) {
+    fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'target 必须是 root / backend / frontend' });
+  }
+
+  const projectRoot = path.join(__dirname, '../..');
+  const targetDir = target === 'root'
+    ? projectRoot
+    : path.join(projectRoot, target);
+
+  let tempExtractDir = null;
+  try {
+    const zip = new AdmZip(req.file.path);
+    // 安全检查：每个条目路径都不能逃逸目标目录
+    const entries = zip.getEntries();
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const resolved = safeJoinPath(targetDir, entry.entryName);
+      // 检查解析后的路径是否在 targetDir 内
+      if (!resolved.startsWith(path.resolve(targetDir))) {
+        throw new Error(`非法的 zip 条目路径：${entry.entryName}`);
+      }
+    }
+
+    // 创建临时解压目录，先解压到临时目录再原子替换
+    tempExtractDir = path.join(updatesDir, `extract-${Date.now()}-${uuid()}`);
+    fs.mkdirSync(tempExtractDir, { recursive: true });
+    zip.extractAllTo(tempExtractDir, true);
+
+    // 清空目标目录（保留 .git, node_modules, uploads）
+    const preserve = new Set(['.git', 'node_modules', 'uploads', '.env']);
+    for (const entry of fs.readdirSync(targetDir)) {
+      if (preserve.has(entry)) continue;
+      const full = path.join(targetDir, entry);
+      if (fs.statSync(full).isDirectory()) {
+        rmrf(full);
+      } else {
+        try { fs.unlinkSync(full); } catch {}
+      }
+    }
+
+    // 将解压后的内容移动到目标目录
+    // 如果 zip 内部有一个顶层文件夹（比如 Pulse-main/），需要进入一层
+    let srcDir = tempExtractDir;
+    const extractedEntries = fs.readdirSync(tempExtractDir);
+    // 检查是否只有一个目录且没有 package.json 等标志性文件
+    if (extractedEntries.length === 1) {
+      const onlyEntry = path.join(tempExtractDir, extractedEntries[0]);
+      if (fs.statSync(onlyEntry).isDirectory()) {
+        srcDir = onlyEntry;
+      }
+    }
+
+    for (const entry of fs.readdirSync(srcDir)) {
+      if (preserve.has(entry)) continue;
+      const src = path.join(srcDir, entry);
+      const dst = path.join(targetDir, entry);
+      try {
+        fs.renameSync(src, dst);
+      } catch {
+        // 跨设备复制（move 跨分区时 fallback）
+        fs.cpSync(src, dst, { recursive: true });
+        rmrf(src);
+      }
+    }
+
+    // 清理
+    try { rmrf(tempExtractDir); } catch {}
+    try { fs.unlinkSync(req.file.path); } catch {}
+
+    res.json({
+      success: true,
+      message: `代码包已解压到 ${target} 目录，请重启系统使更改生效`,
+      target,
+      fileCount: entries.filter(e => !e.isDirectory).length,
+    });
+  } catch (err) {
+    // 清理临时文件
+    if (tempExtractDir) try { rmrf(tempExtractDir); } catch {}
+    try { fs.unlinkSync(req.file.path); } catch {}
+    console.error('[Deploy] code upload failed:', err);
+    res.status(500).json({ error: err.message || '代码包解压失败' });
+  }
+});
+
+// 上传 App 安装包
+router.post('/deploy/app', appPackageUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '未上传文件' });
+
+  const { version, description, platform } = req.body;
+  const ext = path.extname(req.file.originalname).toLowerCase();
+  const detectedPlatform = platform || (ext === '.ipa' ? 'ios' : ext === '.apk' ? 'android' : 'unknown');
+
+  res.json({
+    success: true,
+    filename: req.file.filename,
+    originalName: req.file.originalname,
+    size: req.file.size,
+    url: `/uploads/apps/${req.file.filename}`,
+    platform: detectedPlatform,
+    version: version || '',
+    description: description || '',
+    uploadedAt: new Date().toISOString(),
+  });
+});
+
+// 获取 App 安装包列表
+router.get('/deploy/apps', (req, res) => {
+  try {
+    const files = fs.readdirSync(appsDir).filter(f => {
+      const ext = path.extname(f).toLowerCase();
+      return ['.apk', '.ipa', '.zip'].includes(ext);
+    });
+
+    const result = files.map(f => {
+      const fullPath = path.join(appsDir, f);
+      const stat = fs.statSync(fullPath);
+      const ext = path.extname(f).toLowerCase();
+      const platform = ext === '.ipa' ? 'ios' : ext === '.apk' ? 'android' : 'zip';
+      return {
+        filename: f,
+        size: stat.size,
+        platform,
+        url: `/uploads/apps/${f}`,
+        uploadedAt: stat.mtime.toISOString(),
+      };
+    }).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: '获取列表失败' });
+  }
+});
+
+// 删除 App 安装包
+router.delete('/deploy/apps/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const fullPath = path.join(appsDir, filename);
+
+  // 路径安全检查
+  if (!fullPath.startsWith(path.resolve(appsDir))) {
+    return res.status(400).json({ error: '非法的文件名' });
+  }
+  if (!fs.existsSync(fullPath)) {
+    return res.status(404).json({ error: '文件不存在' });
+  }
+
+  try {
+    fs.unlinkSync(fullPath);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: '删除失败' });
+  }
+});
+
+// 重启系统：触发后台进程，本进程将在 1 秒后退出
+router.post('/deploy/restart', (req, res) => {
+  try {
+    const restartScript = path.join(__dirname, '../restart.js');
+
+    // 启动一个独立的子进程执行重启，解耦父进程生命周期
+    const child = spawn('node', [restartScript], {
+      cwd: path.join(__dirname, '../..'),
+      detached: true,
+      stdio: 'ignore',
+      shell: false,
+      windowsHide: true,
+    });
+    child.unref();
+
+    res.json({
+      success: true,
+      message: '系统将在约 1 秒后重启，期间服务会短暂中断',
+      pid: child.pid,
+    });
+
+    // 1 秒后退出当前进程，让外部守护进程（或 PM2）拉起
+    setTimeout(() => {
+      console.log('[Deploy] Restarting server by admin request...');
+      process.exit(0);
+    }, 1000);
+  } catch (err) {
+    console.error('[Deploy] restart failed:', err);
+    res.status(500).json({ error: '重启失败：' + (err.message || '未知错误') });
+  }
+});
+
+// 构建前端：触发 npm run build，输出到 backend/public
+// 通过 SSE（Server-Sent Events）实时推送构建日志
+router.get('/deploy/build', (req, res) => {
+  // 设置 SSE 响应头
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // 禁用 Nginx 缓冲，确保实时推送
+
+  const frontendDir = path.join(__dirname, '../../frontend');
+  const isWin = process.platform === 'win32';
+  const npmCmd = isWin ? 'npm.cmd' : 'npm';
+
+  const send = (type, data) => {
+    res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+  };
+
+  send('log', `>>> 开始构建前端（目录：${frontendDir}）\n`);
+  send('log', `>>> 执行命令：npm run build\n`);
+
+  const child = spawn(npmCmd, ['run', 'build'], {
+    cwd: frontendDir,
+    shell: false,
+    stdio: 'pipe',
+    windowsHide: false,
+  });
+
+  let stdout = '';
+  let stderr = '';
+
+  child.stdout.on('data', (chunk) => {
+    const text = chunk.toString();
+    stdout += text;
+    send('log', text);
+  });
+
+  child.stderr.on('data', (chunk) => {
+    const text = chunk.toString();
+    stderr += text;
+    send('log', text);
+  });
+
+  child.on('error', (err) => {
+    send('error', `进程启动失败：${err.message}`);
+    send('done', JSON.stringify({ success: false, code: -1 }));
+    res.end();
+  });
+
+  child.on('close', (code) => {
+    if (code === 0) {
+      send('log', `\n>>> 构建成功！产物已输出到 backend/public\n`);
+      send('done', JSON.stringify({ success: true, code }));
+    } else {
+      send('log', `\n>>> 构建失败，退出码 ${code}\n`);
+      send('done', JSON.stringify({ success: false, code }));
+    }
+    res.end();
+  });
+
+  // 客户端断开连接时清理
+  req.on('close', () => {
+    try { child.kill(); } catch {}
+  });
+});
+
+// 获取部署状态（最近构建日志文件、应用版本等）
+router.get('/deploy/status', (req, res) => {
+  try {
+    const publicDir = path.join(__dirname, '../../public');
+    const indexPath = path.join(publicDir, 'index.html');
+
+    let frontendBuilt = false;
+    let buildTime = null;
+    try {
+      const stat = fs.statSync(indexPath);
+      frontendBuilt = true;
+      buildTime = stat.mtime.toISOString();
+    } catch {}
+
+    // 读取后端 package.json 版本
+    let version = '';
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8'));
+      version = pkg.version || '';
+    } catch {}
+
+    // App 安装包统计
+    let appCount = 0;
+    let totalAppSize = 0;
+    try {
+      const files = fs.readdirSync(appsDir);
+      for (const f of files) {
+        const stat = fs.statSync(path.join(appsDir, f));
+        totalAppSize += stat.size;
+        appCount++;
+      }
+    } catch {}
+
+    res.json({
+      frontendBuilt,
+      buildTime,
+      version,
+      appCount,
+      totalAppSize,
+      appsUrl: '/uploads/apps/',
+    });
+  } catch (err) {
+    res.status(500).json({ error: '获取状态失败' });
+  }
 });
 
 export default router;

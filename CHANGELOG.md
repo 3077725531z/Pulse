@@ -1,5 +1,94 @@
 # Pulse 更新日志
 
+## [0.3.0-beta.3] - 2026-09-08
+
+**管理员端在线部署 + App 下载页 + ffmpeg 系统级兼容**
+
+### ✨ 新功能
+
+#### 管理员端「部署」标签页
+- **代码包上传**：支持 `.zip` 代码包上传，自动解压到指定目录
+  - 目标可选 `backend` / `frontend` / `root`
+  - 智能识别 zip 内顶层文件夹（如 `Pulse-main/`）
+  - 安全检查 `safeJoinPath` 防止路径穿越攻击
+  - 保留 `.git` / `node_modules` / `uploads` / `.env`
+  - 跨设备 fallback：`fs.renameSync` 失败时用 `cpSync`
+- **App 安装包管理**：上传 `.apk` / `.ipa` / `.zip` 安装包
+  - 自动识别平台（Android / iOS / 压缩包）
+  - 列表展示、下载、删除
+  - 大小限制 1GB
+- **前端构建**：管理员端一键触发 `npm run build`
+  - 通过 SSE（Server-Sent Events）实时推送构建日志
+  - 进度条根据 Vite 构建阶段动态显示（5% → 100%）
+  - 支持取消构建（AbortController + 后端 kill 子进程）
+- **系统重启**：安全重启后端服务
+  - `detached` 子进程执行 `restart.js`
+  - 依赖 PM2 / 宝塔 Node 进程管理器守护拉起
+- **自动化选项**：
+  - 上传前端代码后自动构建（默认开启）
+  - 构建/上传后自动重启系统（可选）
+- **部署状态**：显示应用版本、前端构建时间、App 数量
+
+#### App 下载页面
+- 公开访问页面，无需登录
+- 登录页右上角 + 首页标题旁新增「App 下载」入口
+- 调用公开接口 `/api/apps` 获取已上传安装包列表
+- 按 Android / iOS / 其他分组展示
+- 每个文件卡片显示平台图标、文件名、大小、上传日期
+- 空状态友好提示 + 安装说明（Android 未知来源、iOS 侧载、PWA 推荐）
+
+#### 公开 App 列表接口
+- `GET /api/apps` 无需登录即可访问
+- 扫描 `uploads/apps/` 目录返回文件列表
+- 包含文件名、平台、大小、上传时间、下载 URL
+
+### 🐛 Bug 修复
+
+#### ffmpeg 路径强制使用包内置导致服务器报错
+- **问题**：Linux 服务器上 `@ffmpeg-installer/linux-x64` 未装上
+  - 后端代码强制 `ffmpeg.setFfmpegPath(ffmpegPath.path)`
+  - 找不到二进制文件导致语音/视频录制转码失败
+- **修复**：优先检测系统 PATH 中的 ffmpeg
+  - `execSync('which ffmpeg')` 查找系统 ffmpeg
+  - 找到则用系统的，找不到回退到 npm 包内置的
+
+#### 头像硬编码 localhost
+- **问题**：头像 URL 硬编码 `http://localhost:3000`
+  - 部署到服务器后头像加载失败
+- **修复**：4 处改为相对路径 `${avatar}`
+  - AdminPage.jsx（用户列表、反馈列表）
+  - useSocket.js（浏览器通知图标）
+  - SettingsSubPages.jsx（帮助页用户头像）
+
+### 📦 依赖
+
+#### 新增
+- `adm-zip` - ZIP 解压，用于代码包部署
+- `@ffmpeg-installer/linux-x64` - Linux 平台 ffmpeg 二进制
+
+### 🚀 部署优化
+
+#### deploy.sh 升级
+- 自动检测并安装 PM2
+- 已存在应用用 `pm2 reload`（零停机重启）
+- 前端构建产物自动输出到 `backend/public/`（Vite 配置）
+- 指数退避重启延迟（`--exp-backoff-restart-delay-interval`，如 PM2 版本支持）
+- root 用户自动配置 systemd 开机自启
+
+#### Nginx 配置说明
+- README 新增「生产部署」章节
+  - 一键部署（PM2）
+  - PM2 配置说明 + 8 个常用命令
+  - 宝塔面板部署 5 步流程
+  - HTTPS + Nginx 反向代理示例（含 WebSocket 透传 + SSE 缓冲关闭）
+
+### 📝 版本号
+
+- 前后端 `package.json` 版本号统一为 `0.3.0-beta.3`
+- 登录页底部显示版本号 `Pulse Chat © 2026 · v0.3.0-beta.3`
+
+---
+
 ## [0.3.0-beta.3] - 2026-09-07
 
 **实时通知系统 + 群聊增强 + 扫码兼容性修复**

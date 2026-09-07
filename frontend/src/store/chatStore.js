@@ -9,6 +9,20 @@ export const useChatStore = create((set, get) => ({
   typingUsers: {},       // { convId: Set<userId> }
   onlineUsers: new Set(),
 
+  // 好友请求通知
+  friendRequestCount: 0,
+  incrementFriendRequest: () => set((s) => ({ friendRequestCount: s.friendRequestCount + 1 })),
+  clearFriendRequest: () => set({ friendRequestCount: 0 }),
+
+  // 被加入新群聊时，重新加载会话列表并让 socket 加入新房间
+  onGroupJoined: (conversationId) => {
+    const socket = getSocket();
+    if (socket && conversationId) {
+      socket.emit('rejoin');
+    }
+    get().loadConversations();
+  },
+
   // 全局来电状态
   incomingCall: null,    // null | { from, callType, signal, conversationId }
   activeCall: null,      // null | { callType, peerUserId, conversationId, incomingSignal }

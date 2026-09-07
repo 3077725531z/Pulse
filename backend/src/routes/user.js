@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
 import db from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { notifyUser } from '../services/socket.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -156,16 +157,19 @@ router.get('/profile/:pulseId', (req, res) => {
   });
 });
 
-// 通过 PulseID 精确查找用户（隐私保护：不能通过用户名/昵称模糊搜索）
+// 通过 PulseID 或用户名查找用户
 router.get('/search', (req, res) => {
   const { q } = req.query;
-  if (!q) return res.json([]);
+  if (!q || !q.trim()) return res.json([]);
 
-  // 只支持精确 PulseID 查找
+  const query = q.trim();
+
+  // 先精确匹配 PulseID，再精确匹配用户名
   const user = db.prepare(`
     SELECT id, pulse_id, username, nickname, avatar, signature FROM users
-    WHERE pulse_id = ? AND id != ?
-  `).get(q.trim(), req.userId);
+    WHERE (pulse_id = ? OR username = ?) AND id != ?
+    LIMIT 1
+  `).get(query, query, req.userId);
 
   res.json(user ? [{
     id: user.id,
@@ -220,6 +224,16 @@ router.post('/friends/request', (req, res) => {
   db.prepare('INSERT INTO friendships (user_id, friend_id, status) VALUES (?, ?, ?)')
     .run(req.userId, targetUserId, 'pending');
 
+  // 实时通知对方有新好友请求
+  const sender = db.prepare('SELECT id, pulse_id, username, nickname, avatar FROM users WHERE id = ?').get(req.userId);
+  notifyUser(targetUserId, 'friend:request', {
+    id: sender.id,
+    pulseId: sender.pulse_id,
+    username: sender.username,
+    nickname: sender.nickname,
+    avatar: sender.avatar,
+  });
+
   res.json({ success: true });
 });
 
@@ -233,6 +247,9 @@ router.post('/friends/accept', (req, res) => {
   // 双向建立关系
   db.prepare("INSERT OR REPLACE INTO friendships (user_id, friend_id, status) VALUES (?, ?, 'accepted')")
     .run(req.userId, fromUserId);
+
+  // 通知请求方好友请求已接受
+  notifyUser(fromUserId, 'friend:accepted', { userId: req.userId });
 
   res.json({ success: true });
 });

@@ -27,6 +27,8 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
   const durationRef = useRef(0);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  const handleEndRef = useRef(null);  // 避免闭包陷阱
+  const hasEndedRef = useRef(false);  // 防止 handleEnd 重复执行（避免多条通话结束消息）
 
   // 初始化 WebRTC
   const initWebRTC = useCallback(async () => {
@@ -104,7 +106,7 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
         if (pc.connectionState === 'connected') {
           setCallState('connected');
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-          handleEnd();
+          handleEndRef.current?.();
         }
       };
 
@@ -156,24 +158,13 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
     }
   }, [initWebRTC, peerUserId, callType, conversationId, incomingSignal]);
 
-  // 处理来电（创建 Answer）
-  const handleIncomingOffer = useCallback(async (signal) => {
-    const result = await initWebRTC();
-    if (!result) return;
-
-    isInitiator.current = false;
-    const { pc } = result;
-
-    await pc.setRemoteDescription(new RTCSessionDescription(signal));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    const socket = getSocket();
-    socket?.emit('call:answer', { to: peerUserId, signal: answer });
-  }, [initWebRTC, peerUserId]);
-
   // 结束通话
   const handleEnd = useCallback(() => {
+    // 防重入：socket 的 call:end 和 WebRTC 的 connectionstatechange 可能同时触发，
+    // 若不拦截会重复发送多条通话结束消息
+    if (hasEndedRef.current) return;
+    hasEndedRef.current = true;
+
     const socket = getSocket();
     if (socket) {
       if (durationRef.current > 0) {
@@ -218,6 +209,11 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
     setCallState('ended');
     onEnd();
   }, [onEnd, conversationId, callType]);
+
+  // 同步 handleEnd 到 ref，避免闭包陷阱
+  useEffect(() => {
+    handleEndRef.current = handleEnd;
+  }, [handleEnd]);
 
   // 切换静音
   const toggleMute = () => {
@@ -350,16 +346,6 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
       console.error('[Recording] Failed to start:', err);
     }
   }, [callType, conversationId]);
-
-  // 停止录制
-  const stopRecording = useCallback(() => {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.stop();
-      mediaRecorderRef.current = null;
-      console.log('[Recording] Stopped');
-    }
-  }, []);
 
   // Socket 事件监听
   useEffect(() => {

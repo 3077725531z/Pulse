@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import jsQR from 'jsqr';
 import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { useI18n } from '../i18n/useI18n';
@@ -40,11 +41,21 @@ export default function ContactsPage({ onSelectUser }) {
   const [showScan, setShowScan] = useState(false);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const friendRequestCount = useChatStore(s => s.friendRequestCount);
+  const clearFriendRequest = useChatStore(s => s.clearFriendRequest);
 
   useEffect(() => {
     loadFriends();
     loadFriendRequests();
+    clearFriendRequest();
   }, []);
+
+  // 收到新好友请求时自动刷新列表
+  useEffect(() => {
+    if (friendRequestCount > 0) {
+      loadFriendRequests();
+    }
+  }, [friendRequestCount]);
 
   const loadFriends = async () => {
     try {
@@ -68,12 +79,12 @@ export default function ContactsPage({ onSelectUser }) {
   };
 
   const handleSearchUsers = async (query) => {
-    if (!query.trim() || query.trim().length < 8) {
+    if (!query.trim()) {
       setSearchUsers([]);
       return;
     }
     try {
-      const { data } = await api.get(`/user/search?q=${query.trim()}`);
+      const { data } = await api.get(`/user/search?q=${encodeURIComponent(query.trim())}`);
       setSearchUsers(data);
     } catch (err) {}
   };
@@ -143,7 +154,7 @@ export default function ContactsPage({ onSelectUser }) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
 
-        // 扫码循环
+        // 扫码循环：优先使用原生 BarcodeDetector，不支持时用 jsQR 作为 fallback
         const canDetect = 'BarcodeDetector' in window;
         timer = setInterval(async () => {
           if (!videoRef.current || !canvasRef.current) return;
@@ -153,6 +164,7 @@ export default function ContactsPage({ onSelectUser }) {
           canvas.width = videoRef.current.videoWidth;
           canvas.height = videoRef.current.videoHeight;
           ctx.drawImage(videoRef.current, 0, 0);
+
           if (canDetect) {
             try {
               const det = new BarcodeDetector({ formats: ['qr_code'] });
@@ -160,9 +172,20 @@ export default function ContactsPage({ onSelectUser }) {
               if (barcodes.length > 0) {
                 stopScan();
                 handleQRResult(barcodes[0].rawValue);
+                return;
               }
             } catch (e) {}
           }
+
+          // fallback：用 jsQR 解析二维码（支持 Safari、Firefox 等浏览器）
+          try {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+            if (code && code.data) {
+              stopScan();
+              handleQRResult(code.data);
+            }
+          } catch (e) {}
         }, 500);
       } catch (err) {
         console.error('摄像头访问失败:', err);
@@ -223,7 +246,17 @@ export default function ContactsPage({ onSelectUser }) {
   const sortedLetters = Object.keys(grouped).sort();
 
   if (viewProfile) {
-    return <UserProfilePage pulseId={viewProfile} onBack={() => setViewProfile(null)} />;
+    return (
+      <UserProfilePage
+        pulseId={viewProfile}
+        onClose={() => setViewProfile(null)}
+        onStartChat={(convId) => {
+          // createPrivate 已重新加载会话列表，由父组件按 ID 取出会话对象打开聊天详情
+          onSelectUser?.(null, convId);
+          setViewProfile(null);
+        }}
+      />
+    );
   }
 
   return (

@@ -112,10 +112,12 @@ function ActiveCallWrapper() {
 
 function AppContent() {
   const { isLoggedIn, fetchMe, fetchSettings, user } = useAuthStore();
+  const friendRequestCount = useChatStore(s => s.friendRequestCount);
+  const conversations = useChatStore(s => s.conversations);
   const { t } = useI18n();
   const [page, _setPage] = useState(() => localStorage.getItem('pulse_page') || 'home');
   const setPage = (p) => { localStorage.setItem('pulse_page', p); _setPage(p); };
-  const [chatConv, setChatConv] = useState(null);   // 当前打开的会�?
+  const [chatConv, setChatConv] = useState(null);   // 当前打开的会�?
   useSocket();
 
   useEffect(() => {
@@ -134,7 +136,7 @@ function AppContent() {
       {/* 状态栏占位 */}
       <div className="h-14 shrink-0" />
 
-      {/* 主内�?*/}
+      {/* 主内�?*/}
       <div className="flex-1 flex flex-col overflow-hidden">
         {chatConv ? (
           <ChatDetail conversation={chatConv} onBack={() => setChatConv(null)} />
@@ -148,7 +150,15 @@ function AppContent() {
                 <ChatList onSelect={(conv) => setChatConv(conv)} />
               </>
             )}
-            {page === 'contacts' && <ContactsPage />}
+            {page === 'contacts' && (
+              <ContactsPage
+                onSelectUser={(friend, convId) => {
+                  // createPrivate 已重新加载会话列表，按 ID 取出会话对象打开聊天详情
+                  const conv = conversations.find(c => c.id === convId);
+                  if (conv) setChatConv(conv);
+                }}
+              />
+            )}
             {page === 'settings' && <SettingsPage onNavigate={(p) => setPage(p)} />}
           </>
         )}
@@ -159,7 +169,7 @@ function AppContent() {
       {/* 全局通话组件 */}
       <ActiveCallWrapper />
 
-      {/* 底部导航（聊天详情页隐藏�?*/}
+      {/* 底部导航（聊天详情页隐藏�?*/}
       {!chatConv && (
         <div className="shrink-0 flex items-center justify-around px-5 py-2 pb-7" style={{ background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderTop: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 -2px 12px rgba(0,0,0,0.04)' }}>
           <button onClick={() => setPage('home')} className={`flex flex-col items-center gap-0.5 px-4 py-1 ${page === 'home' ? 'text-accent' : 'text-t3'}`}>
@@ -169,7 +179,12 @@ function AppContent() {
             <span className="text-[10px] font-medium">{t('nav_home')}</span>
           </button>
           <button onClick={() => setPage('contacts')} className={`flex flex-col items-center gap-0.5 px-4 py-1 ${page === 'contacts' ? 'text-accent' : 'text-t3'}`}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <div className="relative">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              {friendRequestCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-red text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1">{friendRequestCount}</span>
+              )}
+            </div>
             <span className="text-[10px] font-medium">{t('nav_contacts')}</span>
           </button>
           <button onClick={() => setPage('settings')} className={`flex flex-col items-center gap-0.5 px-4 py-1 ${page === 'settings' ? 'text-accent' : 'text-t3'}`}>

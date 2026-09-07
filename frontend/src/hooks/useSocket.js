@@ -28,6 +28,8 @@ export function useSocket() {
   const setUserOnline = useChatStore(s => s.setUserOnline);
   const setIncomingCall = useChatStore(s => s.setIncomingCall);
   const clearIncomingCall = useChatStore(s => s.clearIncomingCall);
+  const incrementFriendRequest = useChatStore(s => s.incrementFriendRequest);
+  const onGroupJoinedHandler = useChatStore(s => s.onGroupJoined);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -70,6 +72,19 @@ export function useSocket() {
     const onCallReject = () => clearIncomingCall();
     const onCallEnd = () => clearIncomingCall();
 
+    // 好友请求通知
+    const onFriendRequest = () => {
+      incrementFriendRequest();
+      // 播放通知音
+      const s = settingsRef.current;
+      if (s.notiSound) playNotiSound();
+    };
+
+    // 被加入新群聊时，刷新会话列表并重新加入 socket 房间
+    const onGroupJoined = ({ conversationId } = {}) => {
+      onGroupJoinedHandler(conversationId);
+    };
+
     socket.on('message:new', onMessage);
     socket.on('typing:start', onTypingStart);
     socket.on('typing:stop', onTypingStop);
@@ -77,6 +92,8 @@ export function useSocket() {
     socket.on('call:offer', onCallOffer);
     socket.on('call:reject', onCallReject);
     socket.on('call:end', onCallEnd);
+    socket.on('friend:request', onFriendRequest);
+    socket.on('group:joined', onGroupJoined);
 
     if (!socket.connected) {
       socket.connect();
@@ -97,6 +114,8 @@ export function useSocket() {
       socket.off('call:offer', onCallOffer);
       socket.off('call:reject', onCallReject);
       socket.off('call:end', onCallEnd);
+      socket.off('friend:request', onFriendRequest);
+      socket.off('group:joined', onGroupJoined);
     };
   }, [token]);
 }

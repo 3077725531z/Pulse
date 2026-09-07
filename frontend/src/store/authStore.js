@@ -68,7 +68,7 @@ export const useAuthStore = create((set, get) => ({
   },
 
   initTheme: () => {
-    const theme = localStorage.getItem('pulse_theme') || 'dark';
+    const theme = localStorage.getItem('pulse_theme') || 'light';
     document.documentElement.setAttribute('data-theme', theme);
     set({ theme });
   },

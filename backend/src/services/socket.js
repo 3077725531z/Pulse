@@ -8,8 +8,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'pulse_secret_key_change_in_prod';
 const onlineUsers = new Map();
 // 延迟离线定时器: userId -> timeout
 const offlineTimers = new Map();
+// Socket.IO 实例引用
+let ioInstance = null;
 
 export function setupSocket(io) {
+  ioInstance = io;
   // 认证中间件
   io.use((socket, next) => {
     const token = socket.handshake.auth.token;
@@ -99,9 +102,17 @@ export function setupSocket(io) {
     // 消息已读
     socket.on('message:read', (data) => {
       const { conversationId } = data;
+      if (!conversationId) return;
+
+      // 验证成员身份
+      const member = db.prepare(
+        'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+      ).get(conversationId, userId);
+      if (!member) return;
+
       // 检查用户是否开启了已读回执
       const settings = db.prepare('SELECT show_read_receipts FROM user_settings WHERE user_id = ?').get(userId);
-      if (settings && !settings.show_read_receipts) return; // 关闭了已读回执，不处理
+      if (settings && !settings.show_read_receipts) return;
 
       db.prepare(`
         UPDATE message_status SET status = 'read'
@@ -115,16 +126,29 @@ export function setupSocket(io) {
 
     // 正在输入
     socket.on('typing:start', (data) => {
+      const { conversationId } = data;
+      if (!conversationId) return;
+      // 验证成员身份
+      const member = db.prepare(
+        'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+      ).get(conversationId, userId);
+      if (!member) return;
       // 检查用户是否开启了输入状态显示
       const settings = db.prepare('SELECT show_typing FROM user_settings WHERE user_id = ?').get(userId);
       if (settings && !settings.show_typing) return;
-      socket.to(data.conversationId).emit('typing:start', { userId, conversationId: data.conversationId });
+      socket.to(conversationId).emit('typing:start', { userId, conversationId });
     });
 
     socket.on('typing:stop', (data) => {
+      const { conversationId } = data;
+      if (!conversationId) return;
+      const member = db.prepare(
+        'SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?'
+      ).get(conversationId, userId);
+      if (!member) return;
       const settings = db.prepare('SELECT show_typing FROM user_settings WHERE user_id = ?').get(userId);
       if (settings && !settings.show_typing) return;
-      socket.to(data.conversationId).emit('typing:stop', { userId, conversationId: data.conversationId });
+      socket.to(conversationId).emit('typing:stop', { userId, conversationId });
     });
 
     // ========== 通话信令 ==========
@@ -259,6 +283,16 @@ function notifyConversationMembers(io, userId, isOnline) {
 // 获取在线状态
 export function isOnline(userId) {
   return onlineUsers.has(userId);
+}
+
+// 给指定用户发送实时通知（用于好友请求等）
+export function notifyUser(userId, event, data) {
+  const sockets = onlineUsers.get(userId);
+  if (sockets && ioInstance) {
+    sockets.forEach(sid => {
+      ioInstance.to(sid).emit(event, data);
+    });
+  }
 }
 
 // 同步当前在线用户状态给刚连接的用户（尊重被查看者的在线状态可见性设置）

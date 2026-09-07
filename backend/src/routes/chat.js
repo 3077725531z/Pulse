@@ -8,6 +8,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import db from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { notifyUser } from '../services/socket.js';
 
 ffmpeg.setFfmpegPath(ffmpegPath.path);
 
@@ -43,7 +44,9 @@ router.get('/conversations', (req, res) => {
       (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_time,
       (SELECT sender_id FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_sender_id,
-      (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_type
+      (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_type,
+      (SELECT u.nickname FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_sender_name,
+      (SELECT COUNT(*) FROM conversation_members WHERE conversation_id = c.id) as member_count
     FROM conversation_members cm
     JOIN conversations c ON c.id = cm.conversation_id
     WHERE cm.user_id = ?
@@ -164,7 +167,51 @@ router.post('/group', (req, res) => {
       .run(id, memberId);
   }
 
+  // 实时通知被邀请的成员加入新群房间，避免他们错过群内首条消息
+  const creator = db.prepare('SELECT id, pulse_id, username, nickname, avatar FROM users WHERE id = ?').get(req.userId);
+  for (const memberId of memberIds) {
+    if (memberId === req.userId) continue;
+    notifyUser(memberId, 'group:joined', {
+      conversationId: id,
+      name,
+      creator: creator && {
+        id: creator.id,
+        pulseId: creator.pulse_id,
+        username: creator.username,
+        nickname: creator.nickname,
+        avatar: creator.avatar,
+      },
+    });
+  }
+
   res.json({ id });
+});
+
+// 获取群成员列表
+router.get('/group/:conversationId/members', (req, res) => {
+  const { conversationId } = req.params;
+  // 校验是否是群成员
+  const me = db.prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
+    .get(conversationId, req.userId);
+  if (!me) return res.status(403).json({ error: '无权访问该会话' });
+
+  const members = db.prepare(`
+    SELECT u.id, u.pulse_id, u.username, u.nickname, u.avatar, u.signature, cm.role, cm.joined_at
+    FROM conversation_members cm JOIN users u ON u.id = cm.user_id
+    WHERE cm.conversation_id = ?
+    ORDER BY cm.role DESC, cm.joined_at
+  `).all(conversationId);
+
+  res.json(members.map(m => ({
+    id: m.id,
+    pulseId: m.pulse_id,
+    username: m.username,
+    nickname: m.nickname,
+    avatar: m.avatar,
+    signature: m.signature,
+    role: m.role,
+    joinedAt: m.joined_at,
+  })));
 });
 
 // 文件上传

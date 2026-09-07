@@ -47,12 +47,17 @@ const EMOJI_LIST = [
 
 export default function ChatDetail({ conversation, onBack }) {
   const { t } = useI18n();
-  const { messages, loadMessages, sendMessage, typingUsers, onlineUsers, startCall } = useChatStore();
+  const messages = useChatStore(s => s.messages);
+  const loadMessages = useChatStore(s => s.loadMessages);
+  const sendMessage = useChatStore(s => s.sendMessage);
+  const typingUsers = useChatStore(s => s.typingUsers);
+  const onlineUsers = useChatStore(s => s.onlineUsers);
+  const startCall = useChatStore(s => s.startCall);
   const user = useAuthStore(s => s.user);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [readStatus, setReadStatus] = useState({});
+  const [readStatus, setReadStatus] = useState({});  // { userId: true } 谁已读了我的消息
   const [showEmoji, setShowEmoji] = useState(false);
   const msgEndRef = useRef(null);
   const typingTimeout = useRef(null);
@@ -212,7 +217,9 @@ export default function ChatDetail({ conversation, onBack }) {
   const displayName = conversation.name || t('chat_unknown');
   const displayAvatar = conversation.avatar || '';
 
-  const isRead = readStatus[otherUserId];
+  const isRead = conversation.type === 'private'
+    ? readStatus[otherUserId]
+    : Object.keys(readStatus).length > 0;
 
   return (
     <div className="flex flex-col h-full">

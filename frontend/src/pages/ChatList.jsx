@@ -23,7 +23,10 @@ function getGradient(name) {
 }
 
 export default function ChatList({ onSelect }) {
-  const { conversations, loadConversations, onlineUsers, createGroup } = useChatStore();
+  const conversations = useChatStore(s => s.conversations);
+  const loadConversations = useChatStore(s => s.loadConversations);
+  const onlineUsers = useChatStore(s => s.onlineUsers);
+  const createGroup = useChatStore(s => s.createGroup);
   const { user } = useAuthStore();
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
@@ -82,7 +85,7 @@ export default function ChatList({ onSelect }) {
       </div>
 
       {conversations.map((conv) => {
-        const displayName = conv.name || '未知';
+        const displayName = conv.type === 'group' ? (conv.name || '群聊') : (conv.name || '未知');
         const isOnline = conv.other && onlineUsers.has(conv.other.id);
         const lastMsg = conv.last_type === 'voice' ? '[语音通话]'
           : conv.last_type === 'video' ? '[视频通话]'

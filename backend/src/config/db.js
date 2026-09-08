@@ -108,6 +108,16 @@ export async function initDB() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS changelogs (
+      id TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      date TEXT NOT NULL,
+      title TEXT DEFAULT '',
+      tags TEXT DEFAULT '[]',
+      sections TEXT DEFAULT '[]',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS user_settings (
       user_id TEXT PRIMARY KEY,
       online_visibility TEXT DEFAULT 'friends' CHECK(online_visibility IN ('all', 'friends', 'none')),
@@ -233,6 +243,81 @@ export async function initDB() {
     }
   } catch (err) {
     console.log('Table meta setup:', err.message);
+  }
+
+  // 初始化默认更新日志（仅首次，表为空时写入）
+  try {
+    const count = db.prepare('SELECT COUNT(*) as c FROM changelogs').get();
+    if (!count || count.c === 0) {
+      const defaultChangelogs = [
+        {
+          id: uuid(),
+          version: '0.3.0-beta.4',
+          date: '2026-09-08',
+          title: '更新日志数据库化 + 部署说明文档 + 服务稳定性增强',
+          tags: JSON.stringify(['更新日志', '部署文档', '稳定性']),
+          sections: JSON.stringify([
+            { type: 'feat', title: '更新日志数据库化', items: ['SQLite changelogs 表存储', '管理员端增删改查', '用户端动态拉取 /api/changelogs', 'seed-changelogs.mjs 种子脚本'] },
+            { type: 'feat', title: '部署说明文档', items: ['管理员「部署」页底部详细说明', '两种部署方式 + 注意事项 + 常见问题'] },
+            { type: 'fix', title: '后端启动崩溃（502）', items: ['移除 @ffmpeg-installer 静态 import', '顶层 fs.mkdirSync 加 try-catch'] },
+            { type: 'perf', title: '版本号统一', items: ['vite.config define __APP_VERSION__', '登录页/关于页/管理端自动同步'] },
+          ]),
+        },
+        {
+          id: uuid(),
+          version: '0.3.0-beta.3',
+          date: '2026-09-08',
+          title: '管理员端在线部署 + App 下载页 + 服务稳定性修复',
+          tags: JSON.stringify(['部署', 'Bug 修复', '稳定性']),
+          sections: JSON.stringify([
+            { type: 'feat', title: '管理员端「部署」标签页', items: ['代码包上传：支持 .zip 自动解压', 'App 安装包管理（.apk/.ipa/.zip）', '前端一键构建（SSE 实时日志）', '系统安全重启 + 自动化选项'] },
+            { type: 'feat', title: 'App 下载页面', items: ['公开访问无需登录', '按平台分组展示安装包'] },
+            { type: 'fix', title: '服务启动崩溃修复（502 根因）', items: ['移除 @ffmpeg-installer 静态 import', '顶层 fs.mkdirSync 加 try-catch'] },
+            { type: 'fix', title: '其他', items: ['头像 URL 改相对路径', '版本号统一从 package.json 读取'] },
+          ]),
+        },
+        {
+          id: uuid(),
+          version: '0.3.0-beta.2',
+          date: '2026-09-07',
+          title: '实时通知系统 + 群聊增强 + 扫码兼容性修复',
+          tags: JSON.stringify(['实时通信', '群聊', 'Bug 修复']),
+          sections: JSON.stringify([
+            { type: 'feat', title: '好友请求实时通知', items: ['Socket.IO 定向推送', '未读请求计数徽章'] },
+            { type: 'feat', title: '群聊增强', items: ['创建群聊实时通知成员', '群成员列表接口'] },
+            { type: 'fix', title: 'Bug 修复', items: ['通话挂断重复消息', 'Safari/Firefox 扫码兼容', '拒绝好友请求状态错误'] },
+          ]),
+        },
+        {
+          id: uuid(),
+          version: '0.2.0-beta.2',
+          date: '2026-09-07',
+          title: '全站清新 UI 改版',
+          tags: JSON.stringify(['UI', '主题']),
+          sections: JSON.stringify([
+            { type: 'style', title: '全局主题改版', items: ['默认浅色清新风格', '主色柔和蓝 #6c9ce9', '数字计算验证码'] },
+          ]),
+        },
+        {
+          id: uuid(),
+          version: '0.1.0-beta.1',
+          date: '2026-09-06',
+          title: 'Pulse 内测首发版本',
+          tags: JSON.stringify(['首发']),
+          sections: JSON.stringify([
+            { type: 'feat', title: '用户系统', items: ['注册/登录/登出', '资料编辑', 'QQ邮箱验证码'] },
+            { type: 'feat', title: '即时通讯', items: ['私聊文字消息', '已读状态', '在线状态', '好友管理'] },
+            { type: 'feat', title: '音视频通话', items: ['语音通话', '视频通话'] },
+            { type: 'feat', title: '管理员端', items: ['管理员总览', '数据库动态密码', '数据库可视化'] },
+          ]),
+        },
+      ];
+      const stmt = db.prepare('INSERT INTO changelogs (id, version, date, title, tags, sections) VALUES (?, ?, ?, ?, ?, ?)');
+      defaultChangelogs.forEach(c => stmt.run(c.id, c.version, c.date, c.title, c.tags, c.sections));
+      console.log('Default changelogs seeded');
+    }
+  } catch (err) {
+    console.log('Changelog seed error:', err.message);
   }
 
   saveDB();

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useI18n } from '../i18n/useI18n';
 import EditProfilePage from './EditProfilePage';
-import { PrivacyPage, NotificationPage, StoragePage, LanguagePage, AboutPage, HelpPage } from './SettingsSubPages';
+import { PrivacyPage, NotificationPage, StoragePage, LanguagePage, AboutPage, ChangelogPage, HelpPage } from './SettingsSubPages';
 
 export default function SettingsPage({ onNavigate }) {
   const { user, logout, updatePulseId } = useAuthStore();
@@ -185,7 +185,8 @@ export default function SettingsPage({ onNavigate }) {
       {subPage === 'notification' && <NotificationPage onBack={() => setSubPage(null)} />}
       {subPage === 'storage' && <StoragePage onBack={() => setSubPage(null)} />}
       {subPage === 'language' && <LanguagePage onBack={() => setSubPage(null)} />}
-      {subPage === 'about' && <AboutPage onBack={() => setSubPage(null)} />}
+      {subPage === 'about' && <AboutPage onBack={() => setSubPage(null)} onShowChangelog={() => setSubPage('changelog')} />}
+      {subPage === 'changelog' && <ChangelogPage onBack={() => setSubPage('about')} />}
       {subPage === 'help' && <HelpPage onBack={() => setSubPage(null)} />}
     </div>
   );

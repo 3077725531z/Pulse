@@ -5,26 +5,49 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { execSync } from 'child_process';
 import db from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { notifyUser } from '../services/socket.js';
 
-// 优先使用系统 ffmpeg，找不到时回退到包内置的
-let resolvedFfmpegPath = ffmpegPath.path;
+// ffmpeg 可选加载：优先用系统 ffmpeg，找不到则跳过（录制功能不可用，但服务能启动）
+let ffmpegReady = false;
 try {
   const sysPath = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8' }).trim();
-  if (sysPath && fs.existsSync(sysPath)) resolvedFfmpegPath = sysPath;
-} catch {}
-ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+  if (sysPath && fs.existsSync(sysPath)) {
+    ffmpeg.setFfmpegPath(sysPath);
+    ffmpegReady = true;
+    console.log('[ffmpeg] Using system ffmpeg:', sysPath);
+  } else {
+    // 尝试 npm 包的 ffmpeg（直接用路径，不走 import）
+    const candidates = [
+      '/www/wwwroot/pulse/backend/node_modules/@ffmpeg-installer/linux-x64/ffmpeg',
+      '/usr/local/bin/ffmpeg',
+      '/usr/bin/ffmpeg',
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        ffmpeg.setFfmpegPath(p);
+        ffmpegReady = true;
+        console.log('[ffmpeg] Found ffmpeg at:', p);
+        break;
+      }
+    }
+  }
+} catch (e) {
+  console.warn('[ffmpeg] ffmpeg not found, recording feature will be disabled');
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 确保录制目录存在
 const recordingsDir = path.join(__dirname, '../../uploads/recordings');
-if (!fs.existsSync(recordingsDir)) {
-  fs.mkdirSync(recordingsDir, { recursive: true });
+try {
+  if (!fs.existsSync(recordingsDir)) {
+    fs.mkdirSync(recordingsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('[chat] Cannot create recordings dir:', e.message);
 }
 
 const router = Router();
@@ -258,6 +281,7 @@ router.post('/recordings/upload', recordingUpload.single('recording'), async (re
 
   // 转码 WebM → MP4/MP3
   try {
+    if (!ffmpegReady) throw new Error('ffmpeg not available');
     await new Promise((resolve, reject) => {
       const cmd = ffmpeg(webmPath);
       if (isVideo) {

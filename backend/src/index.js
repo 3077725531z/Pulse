@@ -5,7 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { initDB } from './config/db.js';
+import db, { initDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chat.js';
 import userRoutes from './routes/user.js';
@@ -69,6 +69,24 @@ async function startServer() {
         };
       }).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
       res.json(list);
+    } catch (err) {
+      res.json([]);
+    }
+  });
+
+  // 公开接口：获取更新日志（无需登录）
+  app.get('/api/changelogs', (req, res) => {
+    try {
+      const rows = db.prepare('SELECT * FROM changelogs ORDER BY date DESC, created_at DESC').all();
+      res.json(rows.map(r => ({
+        id: r.id,
+        version: r.version,
+        date: r.date,
+        title: r.title,
+        tags: JSON.parse(r.tags || '[]'),
+        sections: JSON.parse(r.sections || '[]'),
+        createdAt: r.created_at,
+      })));
     } catch (err) {
       res.json([]);
     }

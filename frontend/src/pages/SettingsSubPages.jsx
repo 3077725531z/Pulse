@@ -341,7 +341,7 @@ export function LanguagePage({ onBack }) {
 }
 
 // ========== 关于 Pulse ==========
-export function AboutPage({ onBack }) {
+export function AboutPage({ onBack, onShowChangelog }) {
   const { t } = useI18n();
 
   const features = [
@@ -350,8 +350,8 @@ export function AboutPage({ onBack }) {
   ];
 
   const infoRows = [
-    { label: t('about_version'), value: '1.0.0' },
-    { label: t('about_changelog'), value: t('about_view'), isLink: true },
+    { label: t('about_version'), value: __APP_VERSION__ },
+    { label: t('about_changelog'), value: t('about_view'), isLink: true, onClick: onShowChangelog },
     { label: t('about_terms'), isArrow: true },
   ];
 
@@ -360,13 +360,13 @@ export function AboutPage({ onBack }) {
       <div className="text-center mb-6">
         <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center text-3xl font-bold text-white mb-3 shadow-lg shadow-accent/20">P</div>
         <h2 className="text-xl font-bold text-t1">Pulse</h2>
-        <p className="text-sm text-t3">v1.0.0</p>
+        <p className="text-sm text-t3">v{__APP_VERSION__}</p>
       </div>
       <div className="glass rounded-glass overflow-hidden mb-5">
         {infoRows.map((r, i) => (
-          <div key={i} className={`flex items-center justify-between px-4 py-3.5 ${i < infoRows.length - 1 ? 'border-b border-border' : ''}`}>
+          <div key={i} onClick={r.onClick} className={`flex items-center justify-between px-4 py-3.5 ${i < infoRows.length - 1 ? 'border-b border-border' : ''} ${r.onClick ? 'cursor-pointer active:bg-glass-m' : ''}`}>
             <span className="text-sm text-t1">{r.label}</span>
-            {r.isLink ? <span className="text-sm text-accent cursor-pointer">{r.value}</span> : r.isArrow ? <span className="text-t3 text-base">›</span> : <span className="text-sm text-t3">{r.value}</span>}
+            {r.isLink ? <span className="text-sm text-accent">{r.value}</span> : r.isArrow ? <span className="text-t3 text-base">›</span> : <span className="text-sm text-t3">{r.value}</span>}
           </div>
         ))}
       </div>
@@ -379,6 +379,77 @@ export function AboutPage({ onBack }) {
         </div>
       </div>
       <p className="text-xs text-t3 text-center mt-6">{t('about_madeWith')}</p>
+    </SubPageShell>
+  );
+}
+
+// ========== 更新日志 ==========
+const TYPE_STYLE = {
+  feat: { label: '新功能', color: 'bg-green-500/15 text-green-400' },
+  fix: { label: '修复', color: 'bg-red-500/15 text-red-400' },
+  style: { label: '样式', color: 'bg-blue-500/15 text-blue-400' },
+  perf: { label: '优化', color: 'bg-yellow-500/15 text-yellow-400' },
+};
+
+export function ChangelogPage({ onBack }) {
+  const { t } = useI18n();
+  const [changelogs, setChangelogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/changelogs')
+      .then(res => setChangelogs(res.data || []))
+      .catch(() => setChangelogs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <SubPageShell title={t('about_changelog')} onBack={onBack}>
+      {loading ? (
+        <div className="text-center text-t3 py-10">加载中...</div>
+      ) : changelogs.length === 0 ? (
+        <div className="text-center text-t3 py-10">暂无更新日志</div>
+      ) : (
+        <div className="space-y-6">
+          {changelogs.map((rel, idx) => (
+            <div key={rel.id} className="glass rounded-glass p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-base font-bold text-t1">
+                  v{rel.version}
+                  {idx === 0 && <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-accent/20 text-accent align-middle">最新</span>}
+                </h3>
+                <span className="text-xs text-t3">{rel.date}</span>
+              </div>
+              {rel.title && <p className="text-sm text-t2 mb-3">{rel.title}</p>}
+              {rel.tags?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {rel.tags.map(tag => (
+                    <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-glass-m text-t3">{tag}</span>
+                  ))}
+                </div>
+              )}
+              {rel.sections?.map((sec, i) => (
+                <div key={i} className="mb-4 last:mb-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${TYPE_STYLE[sec.type]?.color || 'bg-glass-m text-t3'}`}>
+                      {TYPE_STYLE[sec.type]?.label || sec.type}
+                    </span>
+                    <span className="text-sm font-medium text-t1">{sec.title}</span>
+                  </div>
+                  <ul className="text-xs text-t3 space-y-1.5 pl-1">
+                    {sec.items?.map((item, j) => (
+                      <li key={j} className="flex gap-2">
+                        <span className="text-t4 shrink-0 mt-0.5">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </SubPageShell>
   );
 }

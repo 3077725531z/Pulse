@@ -462,7 +462,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-xs" style={{ color: textLight, animation: 'enterUp 0.5s ease-out 0.3s both' }}>
-          Pulse Chat &copy; 2026 · v0.3.0-beta.3
+          Pulse Chat &copy; 2026 · v{__APP_VERSION__}
         </p>
       </div>
 

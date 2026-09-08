@@ -8,25 +8,46 @@ import AdmZip from 'adm-zip';
 import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import db from '../config/db.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getCurrentPassword, getTimeRemaining } from './db-viewer.js';
 
-// 优先使用系统 ffmpeg，找不到时回退到包内置的
-let resolvedFfmpegPath = ffmpegPath.path;
+// 优先使用系统 ffmpeg，找不到时录制功能不可用但服务能启动
+let resolvedFfmpegPath = null;
 try {
   const sysPath = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8' }).trim();
   if (sysPath && fs.existsSync(sysPath)) resolvedFfmpegPath = sysPath;
 } catch {}
-ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+if (!resolvedFfmpegPath) {
+  // 兜底：尝试 npm 包的 ffmpeg 路径（动态 import，失败不影响启动）
+  try {
+    const ffmpegInstaller = await import('@ffmpeg-installer/ffmpeg');
+    if (ffmpegInstaller?.path && fs.existsSync(ffmpegInstaller.path)) {
+      resolvedFfmpegPath = ffmpegInstaller.path;
+    }
+  } catch {}
+}
+if (resolvedFfmpegPath) {
+  try {
+    ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+    console.log('[admin] Using ffmpeg:', resolvedFfmpegPath);
+  } catch (e) {
+    console.warn('[admin] ffmpeg path set failed, recording disabled:', e.message);
+  }
+} else {
+  console.warn('[admin] ffmpeg not found, recording feature disabled');
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const recordingsDir = path.join(__dirname, '../../uploads/recordings');
 
 // 确保录制目录存在
-if (!fs.existsSync(recordingsDir)) {
-  fs.mkdirSync(recordingsDir, { recursive: true });
+try {
+  if (!fs.existsSync(recordingsDir)) {
+    fs.mkdirSync(recordingsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('[admin] Cannot create recordings dir:', e.message);
 }
 
 // 配置 multer 用于录制文件上传
@@ -45,8 +66,12 @@ const recordingUpload = multer({
 // ========== 部署功能：代码包上传、App 安装包上传、重启 ==========
 const updatesDir = path.join(__dirname, '../../uploads/updates');
 const appsDir = path.join(__dirname, '../../uploads/apps');
-if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true });
-if (!fs.existsSync(appsDir)) fs.mkdirSync(appsDir, { recursive: true });
+try {
+  if (!fs.existsSync(updatesDir)) fs.mkdirSync(updatesDir, { recursive: true });
+  if (!fs.existsSync(appsDir)) fs.mkdirSync(appsDir, { recursive: true });
+} catch (e) {
+  console.warn('[admin] Cannot create upload dirs:', e.message);
+}
 
 // 代码包上传（zip）：保存到临时目录后解压替换
 const codeUpload = multer({
@@ -460,6 +485,52 @@ router.delete('/announcements/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ========== 更新日志管理 ==========
+
+function parseChangelog(row) {
+  return {
+    id: row.id,
+    version: row.version,
+    date: row.date,
+    title: row.title,
+    tags: JSON.parse(row.tags || '[]'),
+    sections: JSON.parse(row.sections || '[]'),
+    createdAt: row.created_at,
+  };
+}
+
+router.get('/changelogs', (req, res) => {
+  const rows = db.prepare('SELECT * FROM changelogs ORDER BY date DESC, created_at DESC').all();
+  res.json(rows.map(parseChangelog));
+});
+
+router.post('/changelogs', (req, res) => {
+  const { version, date, title, tags, sections } = req.body;
+  if (!version || !date) return res.status(400).json({ error: '版本号和日期不能为空' });
+  const id = uuid();
+  db.prepare('INSERT INTO changelogs (id, version, date, title, tags, sections) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, version.trim(), date.trim(), (title || '').trim(),
+         JSON.stringify(tags || []), JSON.stringify(sections || []));
+  const row = db.prepare('SELECT * FROM changelogs WHERE id = ?').get(id);
+  res.json(parseChangelog(row));
+});
+
+router.put('/changelogs/:id', (req, res) => {
+  const { version, date, title, tags, sections } = req.body;
+  const existing = db.prepare('SELECT id FROM changelogs WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: '更新日志不存在' });
+  db.prepare('UPDATE changelogs SET version = ?, date = ?, title = ?, tags = ?, sections = ? WHERE id = ?')
+    .run((version || '').trim(), (date || '').trim(), (title || '').trim(),
+         JSON.stringify(tags || []), JSON.stringify(sections || []), req.params.id);
+  const row = db.prepare('SELECT * FROM changelogs WHERE id = ?').get(req.params.id);
+  res.json(parseChangelog(row));
+});
+
+router.delete('/changelogs/:id', (req, res) => {
+  db.prepare('DELETE FROM changelogs WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ========== 反馈管理 ==========
 
 router.get('/feedback', (req, res) => {
@@ -545,7 +616,7 @@ router.post('/deploy/code', codeUpload.single('file'), (req, res) => {
     return res.status(400).json({ error: 'target 必须是 root / backend / frontend' });
   }
 
-  const projectRoot = path.join(__dirname, '../..');
+  const projectRoot = path.join(__dirname, '../../..');
   const targetDir = target === 'root'
     ? projectRoot
     : path.join(projectRoot, target);
@@ -736,7 +807,7 @@ router.get('/deploy/build', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no'); // 禁用 Nginx 缓冲，确保实时推送
 
-  const frontendDir = path.join(__dirname, '../../frontend');
+  const frontendDir = path.join(__dirname, '../../../frontend');
   const isWin = process.platform === 'win32';
   const npmCmd = isWin ? 'npm.cmd' : 'npm';
 
@@ -749,7 +820,7 @@ router.get('/deploy/build', (req, res) => {
 
   const child = spawn(npmCmd, ['run', 'build'], {
     cwd: frontendDir,
-    shell: false,
+    shell: true,
     stdio: 'pipe',
     windowsHide: false,
   });

@@ -1,8 +1,45 @@
 # Pulse 更新日志
 
+## [0.3.0-beta.4] - 2026-09-08
+
+**更新日志数据库化 + 部署说明文档 + 服务稳定性增强**
+
+### ✨ 新功能
+
+#### 更新日志数据库化
+- 更新日志从硬编码改为 SQLite `changelogs` 表存储
+- 管理员端新增「更新日志」标签页，支持增删改查
+  - 版本号、日期、标题、标签（逗号分隔）
+  - 多模块编辑：类型（新功能/修复/样式/优化）+ 标题 + 条目（每行一条）
+  - 可动态增删模块
+- 用户端「关于 → 更新日志」改为动态拉取 `/api/changelogs`
+- 新增 `seed-changelogs.mjs` 种子脚本，`npm run seed:changelogs` 一键写入默认 4 个版本日志
+
+#### 部署说明文档
+- 管理员「部署」标签页底部新增详细部署说明
+  - 方式一：本地构建后上传 backend（推荐）
+  - 方式二：上传 frontend 源码服务器构建
+  - 注意事项 5 条 + 常见问题 3 条
+
+### 🐛 Bug 修复
+
+#### 后端启动崩溃（502 根因）
+- `admin.js` 移除 `@ffmpeg-installer/ffmpeg` 静态 import，改为优先系统 ffmpeg
+- `chat.js` / `admin.js` 顶层 `fs.mkdirSync` 加 try-catch，防止目录权限问题崩进程
+
+#### 头像路径
+- 头像 URL 从硬编码 `localhost` 改为相对路径
+
+### 📝 版本号统一
+- `vite.config.js` 新增 `define: { __APP_VERSION__: pkg.version }`
+- 登录页、关于页、管理员端版本号统一从 `package.json` 读取
+- 以后更新版本只需改 `package.json`
+
+---
+
 ## [0.3.0-beta.3] - 2026-09-08
 
-**管理员端在线部署 + App 下载页 + ffmpeg 系统级兼容**
+**管理员端在线部署 + App 下载页 + 服务稳定性修复**
 
 ### ✨ 新功能
 
@@ -37,59 +74,54 @@
 - 每个文件卡片显示平台图标、文件名、大小、上传日期
 - 空状态友好提示 + 安装说明（Android 未知来源、iOS 侧载、PWA 推荐）
 
-#### 公开 App 列表接口
-- `GET /api/apps` 无需登录即可访问
-- 扫描 `uploads/apps/` 目录返回文件列表
-- 包含文件名、平台、大小、上传时间、下载 URL
+#### 应用内更新日志
+- 关于页「更新日志」点击可查看完整版本历史
+- 包含 4 个版本（0.1.0 ~ 0.3.0）的功能、修复、样式变更
+- 分类标签（新功能/修复/样式/优化）+ 版本标签 + 日期
 
 ### 🐛 Bug 修复
 
-#### ffmpeg 路径强制使用包内置导致服务器报错
-- **问题**：Linux 服务器上 `@ffmpeg-installer/linux-x64` 未装上
-  - 后端代码强制 `ffmpeg.setFfmpegPath(ffmpegPath.path)`
-  - 找不到二进制文件导致语音/视频录制转码失败
-- **修复**：优先检测系统 PATH 中的 ffmpeg
-  - `execSync('which ffmpeg')` 查找系统 ffmpeg
-  - 找到则用系统的，找不到回退到 npm 包内置的
+#### 服务启动崩溃导致 502（核心修复）
+- **问题**：服务器部署后所有请求返回 502 Bad Gateway
+- **根因**：`admin.js` 顶部 `import ffmpegPath from '@ffmpeg-installer/ffmpeg'` 在模块加载时直接 throw
+  - 该包 import 时会查找自带 ffmpeg 二进制，找不到就抛 `Could not find ffmpeg executable`
+  - import 阶段的异常无法被 try-catch 捕获，导致整个后端进程启动失败
+- **修复**：
+  - 移除 `@ffmpeg-installer/ffmpeg` 的静态 import
+  - 改为优先用 `which ffmpeg` 查找系统 ffmpeg（服务器已有 `/usr/local/bin/ffmpeg`）
+  - 找不到时再用动态 `await import('@ffmpeg-installer/ffmpeg')` 兜底（失败不影响启动）
+  - `ffmpeg.setFfmpegPath()` 包裹 try-catch，ffmpeg 缺失仅禁用录制功能
+
+#### 目录权限导致进程崩溃
+- **问题**：服务器上 PM2 进程用户对项目目录无写权限
+- **根因**：`chat.js` / `admin.js` 顶层 `fs.mkdirSync()` 未做容错，抛 `EACCES` 崩进程
+- **修复**：所有顶层 `fs.mkdirSync` 包裹 try-catch，失败仅 warn 不崩溃
 
 #### 头像硬编码 localhost
-- **问题**：头像 URL 硬编码 `http://localhost:3000`
-  - 部署到服务器后头像加载失败
-- **修复**：4 处改为相对路径 `${avatar}`
-  - AdminPage.jsx（用户列表、反馈列表）
-  - useSocket.js（浏览器通知图标）
-  - SettingsSubPages.jsx（帮助页用户头像）
+- **问题**：头像 URL 硬编码 `http://localhost:3000`，部署到服务器后头像加载失败
+- **修复**：4 处改为相对路径 `${avatar}`（AdminPage.jsx、useSocket.js、SettingsSubPages.jsx）
+
+#### 版本号分散且不一致
+- **问题**：登录页显示 `0.3.0-beta.3`，关于页显示 `1.0.0`，package.json 是 `0.3.0-beta.3`
+- **修复**：`vite.config.js` 新增 `define: { __APP_VERSION__: pkg.version }`
+  - 登录页、关于页统一使用 `__APP_VERSION__`
+  - 以后只需改 `package.json` 的 version 字段即可全局同步
 
 ### 📦 依赖
 
 #### 新增
 - `adm-zip` - ZIP 解压，用于代码包部署
-- `@ffmpeg-installer/linux-x64` - Linux 平台 ffmpeg 二进制
 
 ### 🚀 部署优化
 
-#### deploy.sh 升级
-- 自动检测并安装 PM2
-- 已存在应用用 `pm2 reload`（零停机重启）
-- 前端构建产物自动输出到 `backend/public/`（Vite 配置）
-- 指数退避重启延迟（`--exp-backoff-restart-delay-interval`，如 PM2 版本支持）
-- root 用户自动配置 systemd 开机自启
-
-#### Nginx 配置说明
-- README 新增「生产部署」章节
-  - 一键部署（PM2）
-  - PM2 配置说明 + 8 个常用命令
-  - 宝塔面板部署 5 步流程
-  - HTTPS + Nginx 反向代理示例（含 WebSocket 透传 + SSE 缓冲关闭）
-
-### 📝 版本号
-
-- 前后端 `package.json` 版本号统一为 `0.3.0-beta.3`
-- 登录页底部显示版本号 `Pulse Chat © 2026 · v0.3.0-beta.3`
+#### Nginx 配置
+- 反代 `proxy_pass http://127.0.0.1:3000` + WebSocket 升级头
+- SSE 接口 `/api/admin/deploy/build` 关闭缓冲（`proxy_buffering off`）
+- `client_max_body_size 1G` 支持大文件上传
 
 ---
 
-## [0.3.0-beta.3] - 2026-09-07
+## [0.3.0-beta.2] - 2026-09-07
 
 **实时通知系统 + 群聊增强 + 扫码兼容性修复**
 

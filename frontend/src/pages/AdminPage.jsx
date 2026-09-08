@@ -115,6 +115,13 @@ export default function AdminPage({ onBack }) {
   const [editAnnouncement, setEditAnnouncement] = useState(null);
   const [announcementTitle, setAnnouncementTitle] = useState('');
   const [announcementContent, setAnnouncementContent] = useState('');
+  const [changelogs, setChangelogs] = useState([]);
+  const [editChangelog, setEditChangelog] = useState(null);
+  const [clVersion, setClVersion] = useState('');
+  const [clDate, setClDate] = useState('');
+  const [clTitle, setClTitle] = useState('');
+  const [clTags, setClTags] = useState('');
+  const [clSections, setClSections] = useState([{ type: 'feat', title: '', items: '' }]);
   const [feedbacks, setFeedbacks] = useState([]);
   const [replyingFeedback, setReplyingFeedback] = useState(null);
   const [replyContent, setReplyContent] = useState('');
@@ -174,6 +181,7 @@ export default function AdminPage({ onBack }) {
   const loadCalls = async () => { const { data } = await api.get('/admin/calls'); setCalls(data); };
   const loadRecordings = async () => { const { data } = await api.get('/admin/recordings'); setRecordings(data); };
   const loadAnnouncements = async () => { const { data } = await api.get('/admin/announcements'); setAnnouncements(data); };
+  const loadChangelogs = async () => { const { data } = await api.get('/admin/changelogs'); setChangelogs(data); };
   const loadFeedbacks = async () => { const { data } = await api.get('/admin/feedback'); setFeedbacks(data); };
 
   const handleDeleteUser = async (id) => { if (!confirm('确定删除此用户？')) return; await api.delete(`/admin/users/${id}`); loadUsers(); };
@@ -214,6 +222,7 @@ export default function AdminPage({ onBack }) {
     if (tab === 'calls') loadCalls();
     if (tab === 'recordings') loadRecordings();
     if (tab === 'announcements') loadAnnouncements();
+    if (tab === 'changelogs') loadChangelogs();
     if (tab === 'feedback') loadFeedbacks();
     if (tab === 'deploy') { loadApps(); loadDeployStatus(); }
   };
@@ -523,6 +532,7 @@ export default function AdminPage({ onBack }) {
     { id: 'calls', label: '通话记录', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07"/></svg> },
     { id: 'recordings', label: '录制文件', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg> },
     { id: 'announcements', label: '系统公告', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg> },
+    { id: 'changelogs', label: '更新日志', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
     { id: 'feedback', label: '用户反馈', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="9" y1="10" x2="15" y2="10"/></svg> },
     { id: 'deploy', label: '部署', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> },
   ];
@@ -978,6 +988,124 @@ export default function AdminPage({ onBack }) {
             </div>
           )}
 
+          {/* ========== Changelogs ========== */}
+          {activeTab === 'changelogs' && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-t1">更新日志 ({changelogs.length})</h2>
+                <button onClick={() => {
+                  setEditChangelog({});
+                  setClVersion(''); setClDate(new Date().toISOString().slice(0, 10));
+                  setClTitle(''); setClTags('');
+                  setClSections([{ type: 'feat', title: '', items: '' }]);
+                }} className="px-3 py-1.5 bg-accent rounded-lg text-sm font-medium" style={{ color: '#fff' }}>+ 新增版本</button>
+              </div>
+              {changelogs.length === 0 ? (
+                <div className="glass rounded-xl p-12 text-center">
+                  <p className="text-t3">暂无更新日志</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {changelogs.map(c => (
+                    <div key={c.id} className="glass rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-[15px] font-semibold text-t1">v{c.version} <span className="text-xs text-t3 font-normal ml-2">{c.date}</span></h3>
+                        <div className="flex gap-2">
+                          <button onClick={() => {
+                            setEditChangelog(c);
+                            setClVersion(c.version); setClDate(c.date); setClTitle(c.title || '');
+                            setClTags((c.tags || []).join(', '));
+                            setClSections((c.sections || []).map(s => ({ type: s.type, title: s.title, items: (s.items || []).join('\n') })));
+                          }} className="text-xs text-accent hover:underline">编辑</button>
+                          <button onClick={async () => { if (confirm('确定删除此版本日志？')) { await api.delete(`/admin/changelogs/${c.id}`); loadChangelogs(); } }} className="text-xs text-red hover:underline">删除</button>
+                        </div>
+                      </div>
+                      {c.title && <p className="text-sm text-t2 mb-2">{c.title}</p>}
+                      {c.tags?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {c.tags.map(tag => <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-glass-m text-t3">{tag}</span>)}
+                        </div>
+                      )}
+                      {c.sections?.map((s, i) => (
+                        <div key={i} className="mb-2 last:mb-0">
+                          <span className="text-xs text-t2 font-medium">{s.title}</span>
+                          <ul className="text-xs text-t3 ml-3 mt-1">
+                            {s.items?.map((it, j) => <li key={j}>• {it}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {editChangelog !== null && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="w-full max-w-2xl glass rounded-xl p-5 max-h-[90vh] overflow-y-auto" style={{ background: 'var(--bg-secondary)' }}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-t1">{editChangelog.id ? '编辑版本' : '新增版本'}</h3>
+                      <button onClick={() => setEditChangelog(null)} className="text-t3"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div>
+                        <label className="text-xs text-t3 mb-1 block">版本号 *</label>
+                        <input type="text" placeholder="如 0.3.0" value={clVersion} onChange={e => setClVersion(e.target.value)} className="w-full h-10 glass rounded-lg px-3 text-sm text-t1 placeholder:text-t3 outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-t3 mb-1 block">日期 *</label>
+                        <input type="date" value={clDate} onChange={e => setClDate(e.target.value)} className="w-full h-10 glass rounded-lg px-3 text-sm text-t1 outline-none" />
+                      </div>
+                    </div>
+                    <div className="mb-3">
+                      <label className="text-xs text-t3 mb-1 block">标题</label>
+                      <input type="text" placeholder="一句话描述" value={clTitle} onChange={e => setClTitle(e.target.value)} className="w-full h-10 glass rounded-lg px-3 text-sm text-t1 placeholder:text-t3 outline-none" />
+                    </div>
+                    <div className="mb-4">
+                      <label className="text-xs text-t3 mb-1 block">标签（逗号分隔）</label>
+                      <input type="text" placeholder="如 新功能, Bug修复" value={clTags} onChange={e => setClTags(e.target.value)} className="w-full h-10 glass rounded-lg px-3 text-sm text-t1 placeholder:text-t3 outline-none" />
+                    </div>
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs text-t3">版本内容（每个模块一组）</label>
+                        <button onClick={() => setClSections([...clSections, { type: 'feat', title: '', items: '' }])} className="text-xs text-accent">+ 添加模块</button>
+                      </div>
+                      <div className="space-y-3">
+                        {clSections.map((sec, i) => (
+                          <div key={i} className="glass rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <select value={sec.type} onChange={e => { const next = [...clSections]; next[i] = { ...sec, type: e.target.value }; setClSections(next); }} className="h-8 glass rounded-lg px-2 text-xs text-t1 outline-none">
+                                <option value="feat">新功能</option>
+                                <option value="fix">修复</option>
+                                <option value="style">样式</option>
+                                <option value="perf">优化</option>
+                              </select>
+                              <input type="text" placeholder="模块标题" value={sec.title} onChange={e => { const next = [...clSections]; next[i] = { ...sec, title: e.target.value }; setClSections(next); }} className="flex-1 h-8 glass rounded-lg px-2 text-sm text-t1 placeholder:text-t3 outline-none" />
+                              {clSections.length > 1 && <button onClick={() => setClSections(clSections.filter((_, j) => j !== i))} className="text-xs text-red">删除</button>}
+                            </div>
+                            <textarea placeholder="每条一行" value={sec.items} onChange={e => { const next = [...clSections]; next[i] = { ...sec, items: e.target.value }; setClSections(next); }} className="w-full h-20 glass rounded-lg px-2 py-1.5 text-sm text-t1 placeholder:text-t3 outline-none resize-none" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <button onClick={async () => {
+                      if (!clVersion.trim() || !clDate.trim()) return alert('版本号和日期不能为空');
+                      const tags = clTags.split(',').map(t => t.trim()).filter(Boolean);
+                      const sections = clSections.filter(s => s.title.trim() || s.items.trim()).map(s => ({
+                        type: s.type,
+                        title: s.title.trim(),
+                        items: s.items.split('\n').map(it => it.trim()).filter(Boolean),
+                      }));
+                      const payload = { version: clVersion, date: clDate, title: clTitle, tags, sections };
+                      if (editChangelog.id) await api.put(`/admin/changelogs/${editChangelog.id}`, payload);
+                      else await api.post('/admin/changelogs', payload);
+                      setEditChangelog(null);
+                      loadChangelogs();
+                    }} className="w-full h-10 bg-accent rounded-lg text-sm font-medium" style={{ color: '#fff' }}>{editChangelog.id ? '保存修改' : '发布'}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ========== Feedback ========== */}
           {activeTab === 'feedback' && (
             <div>
@@ -1225,16 +1353,33 @@ export default function AdminPage({ onBack }) {
               </div>
 
               {/* 构建日志 */}
-              {buildLogs.length > 0 && (
+              {(building || buildLogs.length > 0) && (
                 <div className="mt-4">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-t1">构建日志</h3>
+                    <h3 className="text-sm font-semibold text-t1">
+                      构建日志
+                      {building && (
+                        <span className="ml-2 text-xs text-t3">
+                          <span className="inline-block w-2 h-2 rounded-full bg-accent animate-pulse mr-1"></span>
+                          构建中...
+                        </span>
+                      )}
+                    </h3>
                     <button onClick={() => setBuildLogs([])} className="text-xs text-t3 hover:text-t1">清空</button>
                   </div>
-                  <div className="glass rounded-xl p-3 h-64 overflow-y-auto font-mono text-xs">
-                    {buildLogs.map((log, i) => (
-                      <pre key={i} className="text-t2 whitespace-pre-wrap break-all">{log}</pre>
-                    ))}
+                  <div
+                    className="glass rounded-xl p-3 h-64 overflow-y-auto font-mono text-xs"
+                    ref={el => { if (el) el.scrollTop = el.scrollHeight; }}
+                  >
+                    {buildLogs.length === 0 ? (
+                      <p className="text-t3 text-center mt-8">
+                        {building ? '等待构建日志输出...' : '暂无日志'}
+                      </p>
+                    ) : (
+                      buildLogs.map((log, i) => (
+                        <pre key={i} className="text-t2 whitespace-pre-wrap break-all">{log}</pre>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -1303,6 +1448,76 @@ export default function AdminPage({ onBack }) {
                     ))}
                   </div>
                 )}
+              </div>
+
+              {/* 部署说明 */}
+              <div className="mt-6 glass rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                  <h3 className="text-sm font-semibold text-t1">部署说明</h3>
+                </div>
+
+                <div className="space-y-4 text-sm">
+                  {/* 方式一 */}
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(56, 189, 248, 0.08)' }}>
+                    <div className="font-medium text-t1 mb-2">📦 方式一：本地构建后上传 backend（推荐）</div>
+                    <ol className="text-xs text-t2 space-y-1 list-decimal list-inside">
+                      <li>本地执行 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">cd frontend &amp;&amp; npm run build</code>，产物输出到 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">backend/public/</code></li>
+                      <li>打包 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">backend/</code> 文件夹为 zip</li>
+                      <li>上传目标选 <b>backend</b>，<b>关闭</b>自动构建，<b>开启</b>自动重启</li>
+                      <li>若 package.json 有新依赖，服务器终端执行 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">npm install</code></li>
+                    </ol>
+                    <div className="mt-2 text-xs text-t3">
+                      <b>包含：</b>src/、public/（构建产物）、package.json、views/、seed-changelogs.mjs 等
+                      <br />
+                      <b>排除：</b>node_modules/、uploads/、pulse.db、.env
+                    </div>
+                  </div>
+
+                  {/* 方式二 */}
+                  <div className="rounded-lg p-3" style={{ background: 'rgba(167, 139, 250, 0.08)' }}>
+                    <div className="font-medium text-t1 mb-2">🖥️ 方式二：上传 frontend 源码，服务器构建</div>
+                    <ol className="text-xs text-t2 space-y-1 list-decimal list-inside">
+                      <li>打包 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">frontend/</code> 源码为 zip（src/、package.json、vite.config.js）</li>
+                      <li>上传目标选 <b>frontend</b>，<b>开启</b>自动构建（会自动 build 到 backend/public/）</li>
+                      <li>构建日志实时显示，完成后自动重启（如开启）</li>
+                    </ol>
+                    <div className="mt-2 text-xs text-t3">
+                      <b>排除：</b>node_modules/、dist/
+                    </div>
+                  </div>
+
+                  {/* 注意事项 */}
+                  <div>
+                    <div className="font-medium text-t1 mb-2">⚠️ 注意事项</div>
+                    <ul className="text-xs text-t2 space-y-1.5">
+                      <li>• <b>上传 backend 时务必关闭自动构建</b>，否则服务器找不到 frontend 源码会构建失败</li>
+                      <li>• <b>backend/public/ 必须有构建产物</b>，否则页面空白</li>
+                      <li>• <b>上传 backend 后必须重启</b>，后端代码改动才会生效</li>
+                      <li>• 新增依赖后需在服务器 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">npm install</code>，否则报 Cannot find module</li>
+                      <li>• 上传时 <code className="px-1.5 py-0.5 rounded bg-glass-m text-t1">uploads/</code> 目录会被保留（头像、文件、录音不会丢失）</li>
+                    </ul>
+                  </div>
+
+                  {/* 常见问题 */}
+                  <div>
+                    <div className="font-medium text-t1 mb-2">🔧 常见问题</div>
+                    <div className="space-y-2">
+                      <div className="text-xs">
+                        <span className="text-t1">Q：上传后页面空白？</span>
+                        <span className="text-t3 ml-1">→ zip 里没包含 public/ 构建产物，本地先 build 再打包</span>
+                      </div>
+                      <div className="text-xs">
+                        <span className="text-t1">Q：上传后 502 Bad Gateway？</span>
+                        <span className="text-t3 ml-1">→ 后端没起来，开启自动重启或手动 pm2 restart pulse</span>
+                      </div>
+                      <div className="text-xs">
+                        <span className="text-t1">Q：构建失败？</span>
+                        <span className="text-t3 ml-1">→ 查看下方构建日志，或确认上传的是 frontend 源码而非 backend</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}

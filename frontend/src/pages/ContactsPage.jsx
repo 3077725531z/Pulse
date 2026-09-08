@@ -5,6 +5,7 @@ import { useChatStore } from '../store/chatStore';
 import { useAuthStore } from '../store/authStore';
 import { useI18n } from '../i18n/useI18n';
 import api from '../utils/api';
+import resolveUrl from '../utils/resolveUrl';
 import UserProfilePage from './UserProfilePage';
 
 const GRADIENTS = [
@@ -411,7 +412,7 @@ export default function ContactsPage({ onSelectUser }) {
                     style={{ background: getGradient(u.nickname) }}
                     onClick={() => { setViewProfile(u.pulseId); setShowAdd(false); }}
                   >
-                    {u.avatar ? <img src={u.avatar} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}
+                    {u.avatar ? <img src={resolveUrl(u.avatar)} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}
                   </div>
                   <div className="flex-1 cursor-pointer" onClick={() => { setViewProfile(u.pulseId); setShowAdd(false); }}>
                     <div className="text-sm font-medium text-t1">{u.nickname}</div>

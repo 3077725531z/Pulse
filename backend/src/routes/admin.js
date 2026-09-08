@@ -640,8 +640,8 @@ router.post('/deploy/code', codeUpload.single('file'), (req, res) => {
     fs.mkdirSync(tempExtractDir, { recursive: true });
     zip.extractAllTo(tempExtractDir, true);
 
-    // 清空目标目录（保留 .git, node_modules, uploads）
-    const preserve = new Set(['.git', 'node_modules', 'uploads', '.env']);
+    // 清空目标目录（保留 .git, node_modules, uploads, .env, pulse.db）
+    const preserve = new Set(['.git', 'node_modules', 'uploads', '.env', 'pulse.db', 'pulse.db-journal', 'pulse.db-wal']);
     for (const entry of fs.readdirSync(targetDir)) {
       if (preserve.has(entry)) continue;
       const full = path.join(targetDir, entry);
@@ -700,69 +700,132 @@ router.post('/deploy/code', codeUpload.single('file'), (req, res) => {
 router.post('/deploy/app', appPackageUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未上传文件' });
 
-  const { version, description, platform } = req.body;
+  const { version, description, platform, force_update, channel } = req.body;
   const ext = path.extname(req.file.originalname).toLowerCase();
   const detectedPlatform = platform || (ext === '.ipa' ? 'ios' : ext === '.apk' ? 'android' : 'unknown');
 
-  res.json({
-    success: true,
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    size: req.file.size,
-    url: `/uploads/apps/${req.file.filename}`,
-    platform: detectedPlatform,
-    version: version || '',
-    description: description || '',
-    uploadedAt: new Date().toISOString(),
-  });
+  if (!version) {
+    return res.status(400).json({ error: '版本号不能为空' });
+  }
+
+  const downloadUrl = `/uploads/apps/${req.file.filename}`;
+
+  try {
+    // 存储版本信息到数据库
+    const id = uuid();
+    db.prepare(`INSERT INTO app_versions (id, version, platform, download_url, file_size, description, force_update, channel)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id,
+      version.trim(),
+      detectedPlatform,
+      downloadUrl,
+      req.file.size,
+      description || '',
+      force_update === 'true' || force_update === true ? 1 : 0,
+      channel || 'stable'
+    );
+
+    res.json({
+      success: true,
+      id,
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      size: req.file.size,
+      url: downloadUrl,
+      platform: detectedPlatform,
+      version: version.trim(),
+      description: description || '',
+      force_update: force_update === 'true' || force_update === true,
+      channel: channel || 'stable',
+      uploadedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    // 清理文件
+    try { fs.unlinkSync(req.file.path); } catch {}
+    console.error('[Deploy] app upload db failed:', err);
+    res.status(500).json({ error: '保存版本信息失败' });
+  }
 });
 
-// 获取 App 安装包列表
+// 获取 App 安装包列表（从数据库读取版本信息）
 router.get('/deploy/apps', (req, res) => {
   try {
-    const files = fs.readdirSync(appsDir).filter(f => {
-      const ext = path.extname(f).toLowerCase();
-      return ['.apk', '.ipa', '.zip'].includes(ext);
-    });
+    const rows = db.prepare(
+      'SELECT * FROM app_versions ORDER BY created_at DESC'
+    ).all();
 
-    const result = files.map(f => {
-      const fullPath = path.join(appsDir, f);
-      const stat = fs.statSync(fullPath);
-      const ext = path.extname(f).toLowerCase();
-      const platform = ext === '.ipa' ? 'ios' : ext === '.apk' ? 'android' : 'zip';
-      return {
-        filename: f,
-        size: stat.size,
-        platform,
-        url: `/uploads/apps/${f}`,
-        uploadedAt: stat.mtime.toISOString(),
-      };
-    }).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+    const result = rows.map(r => ({
+      id: r.id,
+      version: r.version,
+      platform: r.platform,
+      download_url: r.download_url,
+      file_size: r.file_size,
+      description: r.description,
+      force_update: !!r.force_update,
+      channel: r.channel,
+      created_at: r.created_at,
+    }));
 
     res.json(result);
   } catch (err) {
+    console.error('[Deploy] list apps failed:', err);
     res.status(500).json({ error: '获取列表失败' });
   }
 });
 
-// 删除 App 安装包
-router.delete('/deploy/apps/:filename', (req, res) => {
-  const filename = path.basename(req.params.filename);
-  const fullPath = path.join(appsDir, filename);
-
-  // 路径安全检查
-  if (!fullPath.startsWith(path.resolve(appsDir))) {
-    return res.status(400).json({ error: '非法的文件名' });
-  }
-  if (!fs.existsSync(fullPath)) {
-    return res.status(404).json({ error: '文件不存在' });
-  }
-
+// 删除 App 安装包（同时删除文件和数据库记录）
+router.delete('/deploy/apps/:id', (req, res) => {
+  const id = req.params.id;
   try {
-    fs.unlinkSync(fullPath);
+    const row = db.prepare('SELECT * FROM app_versions WHERE id = ?').get(id);
+    if (!row) {
+      return res.status(404).json({ error: '版本不存在' });
+    }
+
+    // 删除文件
+    const filename = path.basename(row.download_url);
+    const fullPath = path.join(appsDir, filename);
+    if (fs.existsSync(fullPath)) {
+      try { fs.unlinkSync(fullPath); } catch {}
+    }
+
+    // 删除数据库记录
+    db.prepare('DELETE FROM app_versions WHERE id = ?').run(id);
+
     res.json({ success: true });
   } catch (err) {
+    console.error('[Deploy] delete app failed:', err);
     res.status(500).json({ error: '删除失败' });
+  }
+});
+
+// 编辑 App 版本信息（渠道、说明、强制更新）
+router.put('/deploy/apps/:id', (req, res) => {
+  const id = req.params.id;
+  const { description, force_update, channel } = req.body;
+  try {
+    const row = db.prepare('SELECT * FROM app_versions WHERE id = ?').get(id);
+    if (!row) {
+      return res.status(404).json({ error: '版本不存在' });
+    }
+
+    const updates = [];
+    const values = [];
+    if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+    if (force_update !== undefined) { updates.push('force_update = ?'); values.push(force_update ? 1 : 0); }
+    if (channel !== undefined) { updates.push('channel = ?'); values.push(channel); }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: '没有需要更新的字段' });
+    }
+
+    values.push(id);
+    db.prepare(`UPDATE app_versions SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Deploy] edit app failed:', err);
+    res.status(500).json({ error: '更新失败' });
   }
 });
 

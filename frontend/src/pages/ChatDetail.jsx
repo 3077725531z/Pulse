@@ -24,7 +24,7 @@ function getGradient(name) {
 
 function Avatar({ name, avatar, size = 'w-9 h-9', textSize = 'text-sm' }) {
   if (avatar) {
-    return <div className={`${size} rounded-full overflow-hidden shrink-0`}><img src={avatar} alt="" className="w-full h-full object-cover" /></div>;
+    return <div className={`${size} rounded-full overflow-hidden shrink-0`}><img src={resolveUrl(avatar)} alt="" className="w-full h-full object-cover" /></div>;
   }
   return (
     <div className={`${size} rounded-full flex items-center justify-center ${textSize} font-bold text-white shrink-0`} style={{ background: getGradient(name) }}>
@@ -297,9 +297,9 @@ export default function ChatDetail({ conversation, onBack }) {
               <div>
                 <div className={`px-3.5 py-2.5 text-sm leading-relaxed ${isMine ? 'bubble-send' : 'bubble-recv'}`}>
                   {isImage ? (
-                    <img src={msg.content} alt="image" className="max-w-full rounded-lg cursor-pointer" onClick={() => window.open(msg.content, '_blank')} />
+                    <img src={resolveUrl(msg.content)} alt="image" className="max-w-full rounded-lg cursor-pointer" onClick={() => window.open(resolveUrl(msg.content), '_blank')} />
                   ) : isFile ? (
-                    <a href={msg.content.split(': ')[1]} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                    <a href={resolveUrl(msg.content.split(': ')[1])} target="_blank" rel="noopener noreferrer" className="text-accent underline">
                       {msg.content.split(': ')[0]}
                     </a>
                   ) : isCall ? (

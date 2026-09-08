@@ -92,6 +92,58 @@ async function startServer() {
     }
   });
 
+  // 公开接口：检查 App 更新（无需登录）
+  app.get('/api/app/version/check', (req, res) => {
+    try {
+      const platform = (req.query.platform || 'android').toLowerCase();
+      const currentVersion = (req.query.version || '0.0.0').trim();
+      const channel = (req.query.channel || 'stable').toLowerCase();
+
+      // 查询指定平台和渠道的最新版本
+      const row = db.prepare(
+        `SELECT * FROM app_versions WHERE platform = ? AND channel = ? ORDER BY created_at DESC LIMIT 1`
+      ).get(platform, channel);
+
+      if (!row) {
+        return res.json({ has_update: false, latest: null });
+      }
+
+      // 语义化版本比较
+      const compareVersion = (a, b) => {
+        const pa = String(a).replace(/[^0-9.]/g, '').split('.').map(Number);
+        const pb = String(b).replace(/[^0-9.]/g, '').split('.').map(Number);
+        const len = Math.max(pa.length, pb.length);
+        for (let i = 0; i < len; i++) {
+          const na = pa[i] || 0;
+          const nb = pb[i] || 0;
+          if (na > nb) return 1;
+          if (na < nb) return -1;
+        }
+        return 0;
+      };
+
+      const hasUpdate = compareVersion(row.version, currentVersion) > 0;
+
+      res.json({
+        has_update: hasUpdate,
+        latest: {
+          id: row.id,
+          version: row.version,
+          platform: row.platform,
+          download_url: row.download_url,
+          file_size: row.file_size,
+          description: row.description,
+          force_update: !!row.force_update,
+          channel: row.channel,
+          created_at: row.created_at,
+        },
+      });
+    } catch (err) {
+      console.error('[Version Check] error:', err);
+      res.status(500).json({ error: '检查更新失败' });
+    }
+  });
+
   // 数据库可视化页面（放在 public 目录外，避免被 vite build 清空）
   const viewsDir = path.join(__dirname, '../views');
   app.get('/db-viewer', (req, res) => {

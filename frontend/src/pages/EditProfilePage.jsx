@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../utils/api';
+import resolveUrl from '../utils/resolveUrl';
 
 const GRADIENTS = [
   'linear-gradient(135deg,#38bdf8,#0ea5e9)',
@@ -102,7 +103,7 @@ export default function EditProfilePage({ onClose }) {
               onClick={() => fileInputRef.current?.click()}
             >
               {avatar ? (
-                <img src={avatar} alt="avatar" className="w-full h-full object-cover" />
+                <img src={resolveUrl(avatar)} alt="avatar" className="w-full h-full object-cover" />
               ) : (
                 (nickname || 'U')[0]
               )}

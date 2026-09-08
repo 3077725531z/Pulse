@@ -33,7 +33,7 @@ export async function initDB() {
       nickname TEXT NOT NULL,
       avatar TEXT DEFAULT '',
       signature TEXT DEFAULT '',
-      theme TEXT DEFAULT 'dark' CHECK(theme IN ('dark', 'light')),
+      theme TEXT DEFAULT 'light' CHECK(theme IN ('dark', 'light')),
       pulse_id_changed_at DATETIME DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -153,6 +153,20 @@ export async function initDB() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS app_versions (
+      id TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      platform TEXT NOT NULL DEFAULT 'android' CHECK(platform IN ('android', 'ios')),
+      download_url TEXT NOT NULL,
+      file_size INTEGER DEFAULT 0,
+      description TEXT DEFAULT '',
+      force_update INTEGER DEFAULT 0,
+      channel TEXT DEFAULT 'stable' CHECK(channel IN ('stable', 'beta', 'debug')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_versions ON app_versions(platform, channel, created_at);
+
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_conv_members ON conversation_members(user_id);
     CREATE INDEX IF NOT EXISTS idx_friendships ON friendships(user_id, status);
@@ -180,7 +194,7 @@ export async function initDB() {
     }
     
     if (!colNames.includes('theme')) {
-      db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'dark'");
+      db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'");
     }
     
     if (!colNames.includes('pulse_id_changed_at')) {

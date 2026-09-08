@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { useI18n } from '../i18n/useI18n';
 import EditProfilePage from './EditProfilePage';
 import { PrivacyPage, NotificationPage, StoragePage, LanguagePage, AboutPage, ChangelogPage, HelpPage } from './SettingsSubPages';
+import resolveUrl from '../utils/resolveUrl';
 
 export default function SettingsPage({ onNavigate }) {
   const { user, logout, updatePulseId } = useAuthStore();
@@ -102,7 +103,7 @@ export default function SettingsPage({ onNavigate }) {
         <div className="glass rounded-glass p-5 flex items-center gap-3.5 mb-5">
           <div className="w-14 h-14 rounded-full bg-gradient-to-br from-accent to-purple-500 flex items-center justify-center text-xl font-bold text-white">
             {user?.avatar ? (
-              <img src={user.avatar} alt="avatar" className="w-full h-full object-cover rounded-full" />
+              <img src={resolveUrl(user.avatar)} alt="avatar" className="w-full h-full object-cover rounded-full" />
             ) : (
               (user?.nickname || 'U')[0]
             )}

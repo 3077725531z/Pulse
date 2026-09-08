@@ -1,0 +1,13 @@
+{
+  "appId": "com.pulse.app",
+  "appName": "Pulse",
+  "webDir": "../backend/public",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  }
+}

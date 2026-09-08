@@ -3,6 +3,7 @@ import { getSocket } from '../utils/socket';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import api from '../utils/api';
+import resolveUrl from '../utils/resolveUrl';
 
 // 免费的公共 STUN 服务器，用于 NAT 穿透
 const ICE_SERVERS = [
@@ -477,7 +478,7 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
                 style={{ background: getGradient(peerName) }}
               >
                 {peerAvatar ? (
-                  <img src={peerAvatar} alt="" className="w-full h-full object-cover rounded-full" />
+                  <img src={resolveUrl(peerAvatar)} alt="" className="w-full h-full object-cover rounded-full" />
                 ) : (
                   (peerName || '?')[0]
                 )}
@@ -503,7 +504,7 @@ export default function CallModal({ callType, peerUserId, conversationId, peerNa
             style={{ background: getGradient(peerName) }}
           >
             {peerAvatar ? (
-              <img src={peerAvatar} alt="" className="w-full h-full object-cover rounded-full" />
+              <img src={resolveUrl(peerAvatar)} alt="" className="w-full h-full object-cover rounded-full" />
             ) : (
               (peerName || '?')[0]
             )}

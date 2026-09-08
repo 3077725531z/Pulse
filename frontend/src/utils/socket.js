@@ -10,7 +10,8 @@ export function connectSocket(token) {
     socket = null;
   }
 
-  socket = io(window.location.origin, {
+  const serverUrl = import.meta.env.VITE_API_BASE || window.location.origin;
+  socket = io(serverUrl, {
     auth: { token },
     transports: ['websocket', 'polling'],
     reconnection: true,

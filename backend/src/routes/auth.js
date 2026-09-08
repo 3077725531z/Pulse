@@ -236,7 +236,7 @@ router.post('/register', (req, res) => {
   const token = generateToken(id);
   res.json({
     token,
-    user: { id, pulseId, username, nickname, avatar: '', signature: '', theme: 'dark', isAdmin: !!isAdmin }
+    user: { id, pulseId, username, nickname, avatar: '', signature: '', theme: 'light', isAdmin: !!isAdmin }
   });
 });
 

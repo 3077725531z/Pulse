@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import api from '../utils/api';
+import resolveUrl from '../utils/resolveUrl';
 
 const GRADIENTS = [
   'linear-gradient(135deg,#38bdf8,#0ea5e9)',
@@ -109,7 +110,7 @@ export default function ChatList({ onSelect }) {
               style={{ background: conv.avatar ? 'transparent' : getGradient(displayName) }}
             >
               {conv.avatar ? (
-                <img src={conv.avatar} alt="" className="w-full h-full object-cover rounded-full" />
+                <img src={resolveUrl(conv.avatar)} alt="" className="w-full h-full object-cover rounded-full" />
               ) : (
                 displayName[0]
               )}

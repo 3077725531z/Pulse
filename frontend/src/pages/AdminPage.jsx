@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../utils/api';
+import resolveUrl from '../utils/resolveUrl';
 import { useAuthStore } from '../store/authStore';
 
 // ========== 纯 CSS 图表组件 ==========
@@ -147,6 +148,14 @@ export default function AdminPage({ onBack }) {
   const [buildProgress, setBuildProgress] = useState(0);
   const [deployStatus, setDeployStatus] = useState(null);
   const [autoBuild, setAutoBuild] = useState(true);
+  // App 上传表单
+  const [appVersion, setAppVersion] = useState('');
+  const [appDescription, setAppDescription] = useState('');
+  const [appForceUpdate, setAppForceUpdate] = useState(false);
+  const [appChannel, setAppChannel] = useState('stable');
+  // App 编辑弹窗
+  const [editingApp, setEditingApp] = useState(null);
+  const [editForm, setEditForm] = useState({ description: '', force_update: false, channel: 'stable' });
   const [autoRestart, setAutoRestart] = useState(false);
   const buildAbortRef = useRef(null);
 
@@ -439,18 +448,31 @@ export default function AdminPage({ onBack }) {
   const handleAppUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!appVersion.trim()) {
+      setDeployMessage('✗ 请填写版本号');
+      e.target.value = '';
+      return;
+    }
     setUploadProgress(0);
     setDeployMessage('正在上传 App 安装包...');
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('version', appVersion.trim());
+    formData.append('description', appDescription);
+    formData.append('force_update', appForceUpdate ? 'true' : 'false');
+    formData.append('channel', appChannel);
     try {
-      await api.post('/admin/deploy/app', formData, {
+      const { data } = await api.post('/admin/deploy/app', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (ev) => {
           if (ev.total) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
         },
       });
-      setDeployMessage(`✓ App 安装包上传成功：${file.name}`);
+      setDeployMessage(`✓ App 安装包上传成功：v${data.version} (${data.channel})`);
+      // 清空表单
+      setAppVersion('');
+      setAppDescription('');
+      setAppForceUpdate(false);
       loadApps();
     } catch (err) {
       setDeployMessage('✗ 上传失败：' + (err.response?.data?.error || err.message));
@@ -460,13 +482,36 @@ export default function AdminPage({ onBack }) {
   };
 
   // 删除 App 安装包
-  const handleDeleteApp = async (filename) => {
-    if (!confirm(`确定删除 ${filename}？`)) return;
+  const handleDeleteApp = async (app) => {
+    if (!confirm(`确定删除 v${app.version} (${app.platform})？`)) return;
     try {
-      await api.delete(`/admin/deploy/apps/${encodeURIComponent(filename)}`);
+      await api.delete(`/admin/deploy/apps/${app.id}`);
       loadApps();
     } catch (err) {
       setDeployMessage('删除失败：' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // 打开编辑弹窗
+  const handleOpenEdit = (app) => {
+    setEditingApp(app);
+    setEditForm({
+      description: app.description || '',
+      force_update: !!app.force_update,
+      channel: app.channel || 'stable',
+    });
+  };
+
+  // 保存编辑
+  const handleSaveEdit = async () => {
+    if (!editingApp) return;
+    try {
+      await api.put(`/admin/deploy/apps/${editingApp.id}`, editForm);
+      setEditingApp(null);
+      loadApps();
+      setDeployMessage('✓ 更新成功');
+    } catch (err) {
+      setDeployMessage('✗ 更新失败：' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -662,7 +707,7 @@ export default function AdminPage({ onBack }) {
                     {stats.recentUsers.map((u, i) => (
                       <div key={i} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
                         <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-xs font-bold text-accent">
-                          {u.avatar ? <img src={u.avatar} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}
+                          {u.avatar ? <img src={resolveUrl(u.avatar)} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}
                         </div>
                         <div className="flex-1">
                           <div className="text-sm text-t1">{u.nickname}</div>
@@ -699,7 +744,7 @@ export default function AdminPage({ onBack }) {
                     {filteredUsers.map(u => (
                       <tr key={u.id} className="border-b border-border hover:bg-white/5">
                         <td className="py-3 px-4"><div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center text-xs font-bold text-accent">{u.avatar ? <img src={u.avatar} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}</div>
+                          <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center text-xs font-bold text-accent">{u.avatar ? <img src={resolveUrl(u.avatar)} alt="" className="w-full h-full object-cover rounded-full" /> : (u.nickname || '?')[0]}</div>
                           <span className="text-t1">{u.nickname}</span>
                         </div></td>
                         <td className="py-3 px-4 text-t2 font-mono">{u.pulseId}</td>
@@ -935,7 +980,7 @@ export default function AdminPage({ onBack }) {
                 return (
                   <div className="mt-4 glass rounded-xl p-4">
                     <h3 className="text-sm font-medium text-t1 mb-3">预览: {r.callType === 'video' ? '视频通话' : '语音通话'} - {r.senderName}</h3>
-                    {r.callType === 'video' ? <video controls src={r.filePath} className="w-full max-w-lg rounded-lg" preload="metadata" /> : <audio controls src={r.filePath} className="w-full" preload="metadata" />}
+                    {r.callType === 'video' ? <video controls src={resolveUrl(r.filePath)} className="w-full max-w-lg rounded-lg" preload="metadata" /> : <audio controls src={resolveUrl(r.filePath)} className="w-full" preload="metadata" />}
                     <div className="text-xs text-t3 mt-2">时长: {formatDuration(r.duration)} | 大小: {formatFileSize(r.fileSize)} | 格式: {r.mimeType || 'webm'}</div>
                   </div>
                 );
@@ -1128,7 +1173,7 @@ export default function AdminPage({ onBack }) {
                     <div key={f.id} className="glass rounded-xl p-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          {f.avatar ? <img src={f.avatar} alt="" className="w-6 h-6 rounded-full object-cover" /> : <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">{(f.nickname || 'U')[0]}</div>}
+                          {f.avatar ? <img src={resolveUrl(f.avatar)} alt="" className="w-6 h-6 rounded-full object-cover" /> : <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">{(f.nickname || 'U')[0]}</div>}
                           <span className="text-sm font-medium text-t1">{f.nickname}</span>
                           <span className="text-xs text-t3">@{f.username}</span>
                         </div>
@@ -1342,6 +1387,44 @@ export default function AdminPage({ onBack }) {
                       <div className="text-xs text-t3">.apk / .ipa / .zip</div>
                     </div>
                   </div>
+
+                  <div className="space-y-3 mb-3">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={appVersion}
+                        onChange={e => setAppVersion(e.target.value)}
+                        placeholder="版本号 (如 0.3.1)"
+                        className="flex-1 h-9 px-3 rounded-lg bg-black/5 dark:bg-white/5 text-sm text-t1 outline-none focus:ring-1 focus:ring-accent"
+                      />
+                      <select
+                        value={appChannel}
+                        onChange={e => setAppChannel(e.target.value)}
+                        className="h-9 px-3 rounded-lg bg-black/5 dark:bg-white/5 text-sm text-t1 outline-none"
+                      >
+                        <option value="stable">stable</option>
+                        <option value="beta">beta</option>
+                        <option value="debug">debug</option>
+                      </select>
+                    </div>
+                    <textarea
+                      value={appDescription}
+                      onChange={e => setAppDescription(e.target.value)}
+                      placeholder="更新说明（可选）"
+                      rows={2}
+                      className="w-full px-3 py-2 rounded-lg bg-black/5 dark:bg-white/5 text-sm text-t1 outline-none focus:ring-1 focus:ring-accent resize-none"
+                    />
+                    <label className="flex items-center gap-2 text-xs text-t2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={appForceUpdate}
+                        onChange={e => setAppForceUpdate(e.target.checked)}
+                        className="accent-accent"
+                      />
+                      强制更新（用户无法跳过）
+                    </label>
+                  </div>
+
                   <label className="block w-full h-10 bg-accent rounded-lg text-sm font-medium text-center leading-10 cursor-pointer hover:opacity-90 transition-opacity" style={{ color: '#fff' }}>
                     选择 App 文件上传
                     <input type="file" accept=".apk,.ipa,.zip" onChange={handleAppUpload} className="hidden" />
@@ -1421,25 +1504,38 @@ export default function AdminPage({ onBack }) {
                 ) : (
                   <div className="space-y-2">
                     {apps.map(app => (
-                      <div key={app.filename} className="glass rounded-xl p-3 flex items-center gap-3">
+                      <div key={app.id} className="glass rounded-xl p-3 flex items-center gap-3">
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: app.platform === 'ios' ? '#a78bfa15' : app.platform === 'android' ? '#22c55e15' : '#8896ab15' }}>
                           <span className="text-xs font-bold" style={{ color: app.platform === 'ios' ? '#a78bfa' : app.platform === 'android' ? '#22c55e' : '#8896ab' }}>
                             {app.platform === 'ios' ? 'iOS' : app.platform === 'android' ? 'APK' : 'ZIP'}
                           </span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-t1 truncate">{app.filename}</div>
-                          <div className="text-xs text-t3">{formatFileSize(app.size)} · {new Date(app.uploadedAt).toLocaleString()}</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-t1">v{app.version}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: app.channel === 'stable' ? '#22c55e15' : app.channel === 'beta' ? '#f59e0b15' : '#8896ab15', color: app.channel === 'stable' ? '#22c55e' : app.channel === 'beta' ? '#f59e0b' : '#8896ab' }}>
+                              {app.channel}
+                            </span>
+                            {app.force_update ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red/10 text-red">强制更新</span> : null}
+                          </div>
+                          <div className="text-xs text-t3 mt-0.5">{formatFileSize(app.file_size)} · {new Date(app.created_at).toLocaleDateString()}</div>
+                          {app.description && <div className="text-xs text-t3 mt-1 truncate max-w-xs">{app.description}</div>}
                         </div>
+                        <button
+                          onClick={() => handleOpenEdit(app)}
+                          className="text-xs text-blue-500 hover:underline px-2 py-1 rounded bg-blue-500/10"
+                        >
+                          编辑
+                        </button>
                         <a
-                          href={app.url}
+                          href={resolveUrl(app.download_url)}
                           className="text-xs text-accent hover:underline px-2 py-1 rounded bg-accent/10"
                           download
                         >
                           下载
                         </a>
                         <button
-                          onClick={() => handleDeleteApp(app.filename)}
+                          onClick={() => handleDeleteApp(app)}
                           className="text-xs text-red hover:underline px-2 py-1 rounded bg-red/10"
                         >
                           删除
@@ -1524,6 +1620,63 @@ export default function AdminPage({ onBack }) {
 
         </div>
       </div>
+
+      {/* App 版本编辑弹窗 */}
+      {editingApp && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] px-4" onClick={() => setEditingApp(null)}>
+          <div className="glass rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-t1 mb-4">编辑版本 v{editingApp.version}</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-t2 mb-1.5">渠道</label>
+                <select
+                  value={editForm.channel}
+                  onChange={e => setEditForm(prev => ({ ...prev, channel: e.target.value }))}
+                  className="w-full h-10 px-3 rounded-xl bg-black/5 dark:bg-white/5 text-sm text-t1 outline-none focus:ring-1 focus:ring-accent"
+                >
+                  <option value="stable">stable（正式版）</option>
+                  <option value="beta">beta（测试版）</option>
+                  <option value="debug">debug（调试版）</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-t2 mb-1.5">更新说明</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={4}
+                  className="w-full px-3 py-2 rounded-xl bg-black/5 dark:bg-white/5 text-sm text-t1 outline-none focus:ring-1 focus:ring-accent resize-none"
+                  placeholder="更新说明（用户端可见）"
+                />
+              </div>
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editForm.force_update}
+                  onChange={e => setEditForm(prev => ({ ...prev, force_update: e.target.checked }))}
+                  className="accent-accent w-4 h-4"
+                />
+                <span className="text-sm text-t2">强制更新（用户无法跳过）</span>
+              </label>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setEditingApp(null)}
+                className="flex-1 h-10 rounded-xl text-sm font-medium text-t2 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="flex-1 h-10 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                style={{ background: 'linear-gradient(135deg, #6c9ce9, #a5c4f7)' }}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
